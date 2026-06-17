@@ -12,7 +12,8 @@ biograph/
 ├── sensors/
 │   ├── zsh/          — zsh history sensor (Linux + macOS)
 │   ├── kindle/       — Amazon Kindle clippings sensor
-│   └── cli/          — bio CLI logger and query tool
+│   ├── kodi/         — Kodi movie playback sensor (service add-on)
+│   └── cli/          — bio CLI logger and query tool (includes Tolino support)
 ├── browser-extension/— Chrome/Chromium MV3 extension
 ├── web-client/       — Vanilla JS + CSS single-page app
 └── config.example.toml
@@ -121,6 +122,9 @@ uv run pytest
 | `web-visit` | `url: str`, `title: str \| null`, `browser: str` |
 | `kindle-highlight` | `book_title: str`, `author: str`, `highlight: str`, `location: int \| null` |
 | `kindle-book` | `book_title: str`, `author: str`, `asin: str \| null`, `last_read: str \| null` |
+| `tolino-highlight` | `book_title: str`, `author: str`, `highlight: str`, `annotation: str \| null`, `bookmark_id: str`, `location: str \| null` |
+| `tolino-book` | `book_title: str`, `author: str`, `content_id: str`, `read_status: int`, `percent_read: int \| null`, `last_read: str` |
+| `kodi-movie` | `title: str`, `year: int \| null`, `imdb_id: str \| null`, `db_id: int \| null`, `file: str`, `duration_seconds: int`, `progress_percent: float`, `finished: bool` |
 | `photo` | `path: str`, `caption: str \| null`, `lat: float \| null`, `lon: float \| null` |
 
 ---
@@ -291,6 +295,48 @@ bio kindle /Volumes/Kindle           # macOS
 
 ---
 
+## Tolino eReader Sensor
+
+Integrated directly into the `bio` CLI, this sensor imports book progress (`tolino-book` events) and highlights (`tolino-highlight` events) from Tolino/Kobo eReader devices running 5.x firmware.
+
+### Manual Usage
+
+Import book stats and highlights by mounting your Tolino eReader over USB and specifying the path:
+
+```bash
+bio tolino /run/media/user/eReader   # Linux
+# or
+bio tolino /Volumes/eReader          # macOS
+```
+
+If the path is omitted, the CLI will attempt to auto-detect the mount point in `/run/media/*/eReader` (Linux only).
+
+```bash
+bio tolino
+```
+
+### State Partitioning
+
+Sync state is stored locally inside `~/.local/share/biograph/tolino_state_<hash>.json`, where `<hash>` is derived from the server URL. This ensures your progress isn't missed or duplicated when switching between different backend targets (e.g., local development vs. remote server).
+
+---
+
+## Kodi Media Logger
+
+A background service add-on for Kodi that automatically logs movie playback events (`kodi-movie`) to your Biograph timeline.
+
+### Features
+
+- **Automatic Logging:** Watches playback in the background. Logs an event as soon as a movie finishes naturally or when manually stopped after watching 85% or more of the runtime.
+- **Zero Config:** Automatically reads your server URL and token from your system's existing Biograph configuration files (e.g. `~/.config/biograph/config.toml`).
+- **Rich Metadata:** Captures movie Title, Release Year, IMDb ID, duration (in seconds), play progress (%), and watch status.
+
+### Installation
+
+For detailed installation options (including zip files and service configuration), refer to the **[Kodi Sensor README](sensors/kodi/README.md)**.
+
+---
+
 ## Import, Export, and Backup
 
 Manage database state, migrations, and backups directly from the command line:
@@ -327,3 +373,4 @@ Refer to the detailed **[TLS & HTTPS Setup Guide](docs/TLS.md)** for step-by-ste
 - [x] **Phase 4** — Chrome/Chromium browser extension
 - [x] **Phase 5** — Kindle sensor + export/import
 - [x] **Phase 6** — Web client v2 (Stats, Tag Manager, virtual scroll)
+- [x] **Phase 7** — Tolino eReader support & Kodi service logger
