@@ -56,8 +56,19 @@ uv run biograph-server
 uv run python -m biograph.main
 ```
 
+### Running as a systemd service (Arch Linux package)
+
+If you installed the `biograph-backend` Arch Linux package, you can run the backend as a system-wide service:
+
+```bash
+sudo systemctl enable --now biograph-backend.service
+```
+
+Configuration is located at `/etc/biograph/config.toml` (secured with `0640` permissions), and the SQLite database file is located at `/var/lib/biograph/biograph.db`.
+
 The API will be available at `http://127.0.0.1:8000`.
 Interactive docs at `http://127.0.0.1:8000/docs`.
+
 
 ---
 
