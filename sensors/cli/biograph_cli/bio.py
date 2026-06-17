@@ -412,19 +412,36 @@ def calculate_clipping_hash(book_title: str, author: str, highlight: str, locati
     return hasher.hexdigest()
 
 
-def _load_kindle_state() -> dict[str, Any]:
-    state_file = Path.home() / ".local" / "share" / "biograph" / "kindle_state.json"
+def _get_state_path(prefix: str, server_url: str) -> Path:
+    normalized = server_url.strip().lower()
+    server_hash = hashlib.md5(normalized.encode("utf-8")).hexdigest()[:12]
+    filename = f"{prefix}_state_{server_hash}.json"
+    return Path.home() / ".local" / "share" / "biograph" / filename
+
+
+def _load_kindle_state(server_url: str) -> dict[str, Any]:
+    state_file = _get_state_path("kindle", server_url)
     if state_file.exists():
         try:
             with open(state_file, "r") as f:
                 return json.load(f)
         except Exception:
             pass
+    # Migration check
+    legacy_file = Path.home() / ".local" / "share" / "biograph" / "kindle_state.json"
+    if legacy_file.exists():
+        try:
+            with open(legacy_file, "r") as f:
+                data = json.load(f)
+            _save_kindle_state(server_url, data)
+            return data
+        except Exception:
+            pass
     return {"sent_hashes": [], "sent_books": []}
 
 
-def _save_kindle_state(state: dict[str, Any]) -> None:
-    state_file = Path.home() / ".local" / "share" / "biograph" / "kindle_state.json"
+def _save_kindle_state(server_url: str, state: dict[str, Any]) -> None:
+    state_file = _get_state_path("kindle", server_url)
     state_file.parent.mkdir(parents=True, exist_ok=True)
     with open(state_file, "w") as f:
         json.dump(state, f, indent=2)
@@ -472,7 +489,9 @@ def kindle(
         console.print("[yellow]No valid clippings found in the file.[/yellow]")
         return
         
-    state = _load_kindle_state()
+    config = _load_config()
+    server_url = _server_url(config)
+    state = _load_kindle_state(server_url)
     sent_hashes = set(state.get("sent_hashes", []))
     sent_books = set(state.get("sent_books", []))
     
@@ -528,7 +547,6 @@ def kindle(
         
     console.print(f"Found {len(events_to_send)} new events to send ({len(new_books_to_track)} books, {len(new_hashes_to_track)} highlights). Sending batch...")
     
-    config = _load_config()
     with _http_client(config) as http:
         try:
             resp = http.post("/events/batch", json=events_to_send)
@@ -542,7 +560,7 @@ def kindle(
             
     sent_hashes.update(new_hashes_to_track)
     sent_books.update(new_books_to_track)
-    _save_kindle_state({
+    _save_kindle_state(server_url, {
         "sent_hashes": list(sent_hashes),
         "sent_books": list(sent_books)
     })
@@ -550,19 +568,29 @@ def kindle(
     console.print(f"[green]✓[/green] Successfully imported {len(events_to_send)} events.")
 
 
-def _load_tolino_state() -> dict[str, Any]:
-    state_file = Path.home() / ".local" / "share" / "biograph" / "tolino_state.json"
+def _load_tolino_state(server_url: str) -> dict[str, Any]:
+    state_file = _get_state_path("tolino", server_url)
     if state_file.exists():
         try:
             with open(state_file, "r") as f:
                 return json.load(f)
         except Exception:
             pass
+    # Migration check
+    legacy_file = Path.home() / ".local" / "share" / "biograph" / "tolino_state.json"
+    if legacy_file.exists():
+        try:
+            with open(legacy_file, "r") as f:
+                data = json.load(f)
+            _save_tolino_state(server_url, data)
+            return data
+        except Exception:
+            pass
     return {"sent_bookmark_ids": [], "sent_book_progress": {}}
 
 
-def _save_tolino_state(state: dict[str, Any]) -> None:
-    state_file = Path.home() / ".local" / "share" / "biograph" / "tolino_state.json"
+def _save_tolino_state(server_url: str, state: dict[str, Any]) -> None:
+    state_file = _get_state_path("tolino", server_url)
     state_file.parent.mkdir(parents=True, exist_ok=True)
     with open(state_file, "w") as f:
         json.dump(state, f, indent=2)
@@ -625,7 +653,9 @@ def tolino(
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise typer.Exit(1)
 
-    state = _load_tolino_state()
+    config = _load_config()
+    server_url = _server_url(config)
+    state = _load_tolino_state(server_url)
     sent_bookmark_ids = set(state.get("sent_bookmark_ids", []))
     sent_book_progress = state.get("sent_book_progress", {})
 
@@ -733,7 +763,6 @@ def tolino(
         f"Found {len(events_to_send)} new events to send ({books_count} books progress updates, {highlights_count} highlights). Sending batch..."
     )
 
-    config = _load_config()
     with _http_client(config) as http:
         try:
             resp = http.post("/events/batch", json=events_to_send)
@@ -746,7 +775,7 @@ def tolino(
             raise typer.Exit(1)
 
     sent_bookmark_ids.update(new_bookmark_ids)
-    _save_tolino_state({
+    _save_tolino_state(server_url, {
         "sent_bookmark_ids": list(sent_bookmark_ids),
         "sent_book_progress": updated_book_progress
     })

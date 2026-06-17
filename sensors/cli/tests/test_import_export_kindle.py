@@ -53,8 +53,8 @@ def test_cli_import(tmp_path: Path):
 @respx.mock
 def test_cli_kindle(tmp_path: Path, monkeypatch):
     # Mock storage state path so we don't write to ~/.local/share/
-    monkeypatch.setattr("biograph_cli.bio._load_kindle_state", lambda: {"sent_hashes": [], "sent_books": []})
-    monkeypatch.setattr("biograph_cli.bio._save_kindle_state", lambda s: None)
+    monkeypatch.setattr("biograph_cli.bio._load_kindle_state", lambda url: {"sent_hashes": [], "sent_books": []})
+    monkeypatch.setattr("biograph_cli.bio._save_kindle_state", lambda url, s: None)
     
     # Create fake mount structure
     mount = tmp_path / "kindle_mount"
@@ -84,8 +84,8 @@ def test_cli_kindle(tmp_path: Path, monkeypatch):
 @respx.mock
 def test_cli_kindle_direct_file(tmp_path: Path, monkeypatch):
     # Mock storage state path so we don't write to ~/.local/share/
-    monkeypatch.setattr("biograph_cli.bio._load_kindle_state", lambda: {"sent_hashes": [], "sent_books": []})
-    monkeypatch.setattr("biograph_cli.bio._save_kindle_state", lambda s: None)
+    monkeypatch.setattr("biograph_cli.bio._load_kindle_state", lambda url: {"sent_hashes": [], "sent_books": []})
+    monkeypatch.setattr("biograph_cli.bio._save_kindle_state", lambda url, s: None)
     
     clippings = tmp_path / "custom_clippings.txt"
     clippings_content = (
@@ -110,8 +110,8 @@ def test_cli_kindle_direct_file(tmp_path: Path, monkeypatch):
 @respx.mock
 def test_cli_tolino(tmp_path: Path, monkeypatch):
     # Mock storage state path so we don't write to ~/.local/share/
-    monkeypatch.setattr("biograph_cli.bio._load_tolino_state", lambda: {"sent_bookmark_ids": [], "sent_book_progress": {}})
-    monkeypatch.setattr("biograph_cli.bio._save_tolino_state", lambda s: None)
+    monkeypatch.setattr("biograph_cli.bio._load_tolino_state", lambda url: {"sent_bookmark_ids": [], "sent_book_progress": {}})
+    monkeypatch.setattr("biograph_cli.bio._save_tolino_state", lambda url, s: None)
     
     # Create fake mount structure
     mount = tmp_path / "tolino_mount"
