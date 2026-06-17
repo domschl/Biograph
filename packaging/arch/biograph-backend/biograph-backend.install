@@ -1,0 +1,14 @@
+post_install() {
+  # Ensure /etc/biograph and config.toml are owned by root:biograph and have secure permissions
+  if [ -d /etc/biograph ]; then
+    chown -R root:biograph /etc/biograph
+    chmod 750 /etc/biograph
+    if [ -f /etc/biograph/config.toml ]; then
+      chmod 640 /etc/biograph/config.toml
+    fi
+  fi
+}
+
+post_upgrade() {
+  post_install
+}

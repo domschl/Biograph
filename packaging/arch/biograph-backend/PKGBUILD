@@ -11,6 +11,9 @@ makedepends=('python-build' 'python-installer' 'python-hatchling' 'python-wheel'
 source=("git+https://codeberg.org/domschl/biograph.git")
 sha256sums=('SKIP')
 
+backup=('etc/biograph/config.toml')
+install=biograph-backend.install
+
 pkgver() {
   cd "${srcdir}/biograph/backend"
   grep -m 1 "^version" pyproject.toml | cut -d '"' -f 2
@@ -28,4 +31,12 @@ package() {
   # Install web client static assets
   install -d "${pkgdir}/usr/share/biograph/web-client"
   cp -r "${srcdir}/biograph/web-client/"* "${pkgdir}/usr/share/biograph/web-client/"
+
+  # Install systemd service and sysusers configuration
+  install -Dm644 biograph-backend.service "${pkgdir}/usr/lib/systemd/system/biograph-backend.service"
+  install -Dm644 biograph-backend.sysusers "${pkgdir}/usr/lib/sysusers.d/biograph-backend.conf"
+
+  # Install default configuration
+  install -Dm640 ../config.example.toml "${pkgdir}/etc/biograph/config.toml"
 }
+

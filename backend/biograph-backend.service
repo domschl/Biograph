@@ -1,0 +1,17 @@
+[Unit]
+Description=Biograph personal life-logging backend
+After=network.target
+
+[Service]
+Type=simple
+User=biograph
+Group=biograph
+WorkingDirectory=/var/lib/biograph
+ExecStart=/usr/bin/biograph-server
+Restart=always
+RestartSec=5s
+Environment=PYTHONUNBUFFERED=1
+StateDirectory=biograph
+
+[Install]
+WantedBy=multi-user.target
