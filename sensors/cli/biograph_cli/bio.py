@@ -387,7 +387,7 @@ def parse_clippings(content: str) -> list[dict[str, Any]]:
                 date_str = part.replace("Added on ", "").strip()
                 parsed_dt = parse_kindle_date(date_str)
                 if parsed_dt:
-                    timestamp = parsed_dt.isoformat()
+                    timestamp = parsed_dt.astimezone(UTC).isoformat()
                     
         is_highlight = "Highlight" in metadata
         
@@ -437,22 +437,25 @@ def _save_kindle_state(state: dict[str, Any]) -> None:
 
 @app.command()
 def kindle(
-    mountpoint: Path = typer.Argument(
+    path: Path = typer.Argument(
         ...,
-        help="Path to Kindle mountpoint, e.g., /run/media/user/Kindle or /Volumes/Kindle",
+        help="Path to Kindle mountpoint directory or directly to the clippings file (e.g. My Clippings.txt).",
     ),
 ) -> None:
-    """Import books and highlights from a mounted Kindle device."""
-    if not mountpoint.is_dir():
-        err.print(f"[red]Error:[/red] '{mountpoint}' is not a directory.")
+    """Import books and highlights from a mounted Kindle device or local clippings file."""
+    clippings_file = None
+    if path.is_file():
+        clippings_file = path
+    elif path.is_dir():
+        clippings_file = path / "documents" / "My Clippings.txt"
+        if not clippings_file.exists():
+            clippings_file = path / "My Clippings.txt"
+    else:
+        err.print(f"[red]Error:[/red] '{path}' is neither a file nor a directory.")
         raise typer.Exit(1)
         
-    clippings_file = mountpoint / "documents" / "My Clippings.txt"
-    if not clippings_file.exists():
-        clippings_file = mountpoint / "My Clippings.txt"
-        
-    if not clippings_file.exists():
-        err.print(f"[red]Error:[/red] Could not find 'My Clippings.txt' under '{mountpoint}'.")
+    if not clippings_file or not clippings_file.exists():
+        err.print(f"[red]Error:[/red] Could not find clippings file at '{path}'.")
         raise typer.Exit(1)
         
     try:
