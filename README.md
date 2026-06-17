@@ -125,6 +125,40 @@ uv run pytest
 
 ---
 
+## Client and Sensor Configuration
+
+All clients (`bio` CLI) and sensors (like the `zsh` history sensor) search for their settings in the following paths (first found wins):
+1. The file pointed to by the `BIOGRAPH_CONFIG` environment variable.
+2. `config.toml` in the current working directory.
+3. `~/.config/biograph/config.toml` (recommended for user-level installations).
+4. `/etc/biograph/config.toml` (recommended for system-wide service installations).
+
+### Structure of `~/.config/biograph/config.toml`
+
+When any client or sensor is run for the first time, a default template is automatically created at `~/.config/biograph/config.example.toml`. You can copy it to `config.toml` in the same directory:
+
+```bash
+cp ~/.config/biograph/config.example.toml ~/.config/biograph/config.toml
+```
+
+The configuration structure supports the following options:
+
+```toml
+[server]
+url   = "http://127.0.0.1:8000"  # URL of the Biograph backend
+token = "change-me"              # Authorization token to connect to the backend
+
+[cli]
+# source_host = "laptop"         # Optional override for the hostname reported by bio CLI
+
+[zsh]
+# history_file = "~/.zsh_history" # Path to your zsh history file
+# state_dir    = "~/.local/share/biograph" # Directory to save sensor state and buffer
+# max_age_days = 30              # On first run, import history from last N days (default: 30)
+```
+
+---
+
 ## zsh History Sensor
 
 Automatically journals shell commands from `~/.zsh_history` (EXTENDED_HISTORY

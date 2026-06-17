@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -58,7 +59,33 @@ _DEFAULT_CONFIG_PATHS: list[Path] = [
 ]
 
 
+def _ensure_user_config_dir() -> None:
+    user_dir = Path.home() / ".config" / "biograph"
+    user_example = user_dir / "config.example.toml"
+    if not user_example.exists():
+        try:
+            user_dir.mkdir(parents=True, exist_ok=True)
+            example_content = """# Biograph Configuration
+
+[server]
+url   = "http://127.0.0.1:8000"  # URL of the Biograph backend
+token = "change-me"              # Authorization token
+
+[cli]
+# source_host = "my-hostname"    # Optional override for the hostname reported by bio CLI
+
+[zsh]
+# history_file = "~/.zsh_history" # Path to zsh history file
+# state_dir    = "~/.local/share/biograph" # Directory for sensor state and buffer
+# max_age_days = 30              # On first run, import history from last N days
+"""
+            user_example.write_text(example_content, encoding="utf-8")
+        except OSError:
+            pass
+
+
 def _load_config() -> dict[str, Any]:
+    _ensure_user_config_dir()
     if env := os.environ.get("BIOGRAPH_CONFIG"):
         candidates: list[Path] = [Path(env)]
     else:
@@ -68,6 +95,10 @@ def _load_config() -> dict[str, Any]:
             with open(c, "rb") as fh:
                 return tomllib.load(fh)
     return {}
+
+
+def _source_host(config: dict[str, Any]) -> str:
+    return config.get("cli", {}).get("source_host") or socket.gethostname()
 
 
 def _server_url(config: dict[str, Any]) -> str:
@@ -169,14 +200,15 @@ def log(
     if mood:
         content["mood"] = mood
 
+    config = _load_config()
     payload = {
         "timestamp": datetime.now(UTC).isoformat(),
         "ev_type": ev_type,
+        "source_host": _source_host(config),
+        "source_app": "bio",
         "content": content,
         "tags": tag_list,
     }
-
-    config = _load_config()
     with _http_client(config) as http:
         try:
             resp = http.post("/events/", json=payload)

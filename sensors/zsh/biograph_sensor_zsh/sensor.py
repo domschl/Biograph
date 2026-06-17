@@ -44,7 +44,33 @@ _DEFAULT_STATE_DIR = Path.home() / ".local" / "share" / "biograph"
 _DEFAULT_MAX_AGE_DAYS = 30  # on first run, only import the last N days
 
 
+def _ensure_user_config_dir() -> None:
+    user_dir = Path.home() / ".config" / "biograph"
+    user_example = user_dir / "config.example.toml"
+    if not user_example.exists():
+        try:
+            user_dir.mkdir(parents=True, exist_ok=True)
+            example_content = """# Biograph Configuration
+
+[server]
+url   = "http://127.0.0.1:8000"  # URL of the Biograph backend
+token = "change-me"              # Authorization token
+
+[cli]
+# source_host = "my-hostname"    # Optional override for the hostname reported by bio CLI
+
+[zsh]
+# history_file = "~/.zsh_history" # Path to zsh history file
+# state_dir    = "~/.local/share/biograph" # Directory for sensor state and buffer
+# max_age_days = 30              # On first run, import history from last N days
+"""
+            user_example.write_text(example_content, encoding="utf-8")
+        except OSError:
+            pass
+
+
 def _load_config() -> dict[str, Any]:
+    _ensure_user_config_dir()
     if env := os.environ.get("BIOGRAPH_CONFIG"):
         candidates: list[Path] = [Path(env)]
     else:
@@ -54,6 +80,7 @@ def _load_config() -> dict[str, Any]:
             with open(c, "rb") as fh:
                 return tomllib.load(fh)
     return {}
+
 
 
 def _server_url(config: dict[str, Any]) -> str:
@@ -284,6 +311,7 @@ class HistoryHandler(FileSystemEventHandler):
         buffer: EventBuffer,
         server_url: str,
         token: str,
+        hostname: str | None = None,
     ) -> None:
         super().__init__()
         self._history_file = history_file.resolve()
@@ -291,6 +319,7 @@ class HistoryHandler(FileSystemEventHandler):
         self._buffer = buffer
         self._server_url = server_url
         self._token = token
+        self._hostname = hostname
 
     def on_modified(self, event: FileSystemEvent) -> None:
         # watchdog may emit directory events too — filter to our file
@@ -304,7 +333,7 @@ class HistoryHandler(FileSystemEventHandler):
 
     def _process(self) -> None:
         new_events, max_ts = parse_history(
-            self._history_file, self._state.last_timestamp
+            self._history_file, self._state.last_timestamp, self._hostname
         )
 
         if not new_events and not self._buffer:
@@ -367,7 +396,8 @@ def main() -> None:
         )
         state.last_timestamp = cutoff
 
-    handler = HistoryHandler(history_file, state, buffer, server_url, token)
+    hostname = config.get("zsh", {}).get("source_host") or config.get("zsh", {}).get("hostname")
+    handler = HistoryHandler(history_file, state, buffer, server_url, token, hostname)
 
     # Initial catch-up pass
     handler.process_initial()
@@ -391,3 +421,4 @@ def main() -> None:
     finally:
         observer.stop()
         observer.join()
+

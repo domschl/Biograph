@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel
@@ -81,15 +81,15 @@ class EventRead(BaseModel):
         """Deserialize JSON-encoded fields from the ORM object."""
         return cls(
             id=event.id,  # type: ignore[arg-type]
-            timestamp=event.timestamp,
-            received_at=event.received_at,
+            timestamp=event.timestamp.replace(tzinfo=timezone.utc) if event.timestamp.tzinfo is None else event.timestamp,
+            received_at=event.received_at.replace(tzinfo=timezone.utc) if event.received_at.tzinfo is None else event.received_at,
             ev_type=event.ev_type,
             source_host=event.source_host,
             source_app=event.source_app,
             content=json.loads(event.content),
             tags=json.loads(event.tags),
             summary=event.summary,
-            deleted_at=event.deleted_at,
+            deleted_at=event.deleted_at.replace(tzinfo=timezone.utc) if event.deleted_at and event.deleted_at.tzinfo is None else event.deleted_at,
         )
 
 
