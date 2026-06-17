@@ -1,7 +1,7 @@
 # Maintainer: Dominik Schloesser <domschl@codeberg.org>
 pkgname=biograph-sensor-zsh
 pkgver=0.1.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Biograph zsh history sensor — watches ~/.zsh_history and sends events"
 arch=('any')
 url="https://codeberg.org/domschl/biograph"

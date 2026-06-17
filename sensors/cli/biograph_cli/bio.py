@@ -98,7 +98,11 @@ def _load_config() -> dict[str, Any]:
 
 
 def _source_host(config: dict[str, Any]) -> str:
-    return config.get("cli", {}).get("source_host") or socket.gethostname()
+    return (
+        config.get("cli", {}).get("source_host")
+        or config.get("source_host")
+        or socket.gethostname()
+    )
 
 
 def _server_url(config: dict[str, Any]) -> str:

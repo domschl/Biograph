@@ -396,7 +396,11 @@ def main() -> None:
         )
         state.last_timestamp = cutoff
 
-    hostname = config.get("zsh", {}).get("source_host") or config.get("zsh", {}).get("hostname")
+    hostname = (
+        config.get("zsh", {}).get("source_host")
+        or config.get("zsh", {}).get("hostname")
+        or config.get("source_host")
+    )
     handler = HistoryHandler(history_file, state, buffer, server_url, token, hostname)
 
     # Initial catch-up pass
