@@ -175,23 +175,34 @@ cd sensors/zsh
 uv sync
 ```
 
+*Note: `uv sync` installs the `biograph-sensor-zsh` executable into `.venv/bin/biograph-sensor-zsh` within the `sensors/zsh` directory.*
+
 ### Run as a service
 
 **Linux (systemd user service)**
-```bash
-cp biograph-zsh.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now biograph-zsh
-journalctl --user -fu biograph-zsh   # follow logs
-```
+1. Copy the service unit:
+   ```bash
+   cp biograph-zsh.service ~/.config/systemd/user/
+   ```
+2. Edit `~/.config/systemd/user/biograph-zsh.service` to set `ExecStart` to the absolute path of the executable (e.g. `/home/user/Biograph/sensors/zsh/.venv/bin/biograph-sensor-zsh`).
+3. Enable and start the service:
+   ```bash
+   systemctl --user daemon-reload
+   systemctl --user enable --now biograph-zsh
+   journalctl --user -fu biograph-zsh   # follow logs
+   ```
 
 **macOS (launchd user agent)**
-```bash
-cp biograph-zsh.plist ~/Library/LaunchAgents/io.biograph.sensor.zsh.plist
-# Edit the plist to set the full path of biograph-sensor-zsh if needed
-launchctl load -w ~/Library/LaunchAgents/io.biograph.sensor.zsh.plist
-tail -f /tmp/biograph-zsh.log        # follow logs
-```
+1. Copy the plist:
+   ```bash
+   cp biograph-zsh.plist ~/Library/LaunchAgents/io.biograph.sensor.zsh.plist
+   ```
+2. Edit the plist file to set the absolute path of the executable (e.g. `/Users/user/Biograph/sensors/zsh/.venv/bin/biograph-sensor-zsh`).
+3. Load the agent:
+   ```bash
+   launchctl load -w ~/Library/LaunchAgents/io.biograph.sensor.zsh.plist
+   tail -f /tmp/biograph-zsh.log        # follow logs
+   ```
 
 ### Config
 
