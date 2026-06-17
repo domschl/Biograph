@@ -1,7 +1,7 @@
 # Maintainer: Dominik Schloesser <domschl@codeberg.org>
 pkgname=biograph-backend
 pkgver=0.1.0
-pkgrel=3
+pkgrel=4
 pkgdesc="Biograph personal life-logging backend (FastAPI + SQLite)"
 arch=('any')
 url="https://codeberg.org/domschl/biograph"
