@@ -8,36 +8,138 @@ let lastLoggedUrl = '';
 let lastLoggedTime = 0;
 
 /**
- * Listens for completed tab updates to trigger event capture.
+ * Listens for tab updates (both full loads and SPA URL changes).
  */
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.status !== 'complete') return;
-  if (!tab.url) return;
-  
-  // Log only HTTP and HTTPS websites (exclude chrome://, file://, extension pages, etc.)
-  if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) {
-    return;
-  }
-  
+// Track pending tab visits to handle SPA dynamic titles and fast navigation
+const pendingVisits = new Map();
+
+/**
+ * Commits a pending visit event to the offline queue.
+ */
+async function commitVisit(tabId) {
+  const pending = pendingVisits.get(tabId);
+  if (!pending) return;
+
   const now = Date.now();
-  // Deduplication: prevent logging the same URL repeatedly if loaded within 10 seconds
-  if (tab.url === lastLoggedUrl && (now - lastLoggedTime) < 10000) {
+  
+  // If the website is YouTube and the title is generic, let's wait a bit longer for it to load/settle
+  const isYouTube = pending.url.includes('youtube.com');
+  const isGenericTitle = !pending.title || 
+                         pending.title === 'YouTube' || 
+                         pending.title === 'YouTube Movies' || 
+                         pending.title === 'Movies & TV' || 
+                         pending.title === 'Movies & TV - YouTube';
+  
+  if (isYouTube && isGenericTitle && (!pending.retryCount || pending.retryCount < 3)) {
+    pending.retryCount = (pending.retryCount || 0) + 1;
+    pending.timeoutId = setTimeout(() => commitVisit(tabId), 2000);
     return;
   }
-  
-  lastLoggedUrl = tab.url;
+
+  // Done with this tab's pending visit
+  pendingVisits.delete(tabId);
+
+  // Deduplication: prevent logging the same URL repeatedly if loaded within 10 seconds
+  if (pending.url === lastLoggedUrl && (now - lastLoggedTime) < 10000) {
+    return;
+  }
+
+  lastLoggedUrl = pending.url;
   lastLoggedTime = now;
-  
+
   await queueEvent({
-    timestamp: new Date(now).toISOString(),
+    timestamp: new Date(pending.timestamp).toISOString(),
     ev_type: 'web-visit',
     content: {
-      url: tab.url,
-      title: tab.title || '',
+      url: pending.url,
+      title: pending.title || '',
       browser: 'Chrome'
     },
     tags: ['web']
   });
+}
+
+/**
+ * Listens for tab updates (handles initial loading, reloads, and dynamic SPA transitions).
+ */
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  // Filter out any pages that are not http:// or https:// (exclude chrome://, etc.)
+  if (tab.url && !tab.url.startsWith('http://') && !tab.url.startsWith('https://')) {
+    if (pendingVisits.has(tabId)) {
+      clearTimeout(pendingVisits.get(tabId).timeoutId);
+      pendingVisits.delete(tabId);
+    }
+    return;
+  }
+
+  // 1. URL changed or page load started/reloaded
+  if (changeInfo.url || changeInfo.status === 'loading') {
+    const targetUrl = changeInfo.url || tab.url;
+    if (!targetUrl) return;
+
+    // If we already have a pending visit for this tab with the same URL, don't reset the timeout
+    const existing = pendingVisits.get(tabId);
+    if (existing && existing.url === targetUrl) {
+      return;
+    }
+
+    if (pendingVisits.has(tabId)) {
+      clearTimeout(pendingVisits.get(tabId).timeoutId);
+    }
+
+    const timeoutId = setTimeout(() => {
+      commitVisit(tabId);
+    }, 3000); // 3 seconds initial delay to let the page load/title settle
+
+    pendingVisits.set(tabId, {
+      url: targetUrl,
+      title: tab.title || '',
+      timestamp: Date.now(),
+      timeoutId: timeoutId,
+      retryCount: 0
+    });
+    return;
+  }
+
+  // 2. Title changed dynamically (critical for SPA routers like YouTube)
+  if (changeInfo.title) {
+    const pending = pendingVisits.get(tabId);
+    if (pending) {
+      pending.title = changeInfo.title;
+    }
+    return;
+  }
+
+  // 3. Page load completed
+  if (changeInfo.status === 'complete') {
+    const pending = pendingVisits.get(tabId);
+    if (pending) {
+      clearTimeout(pending.timeoutId);
+      pending.title = tab.title || pending.title;
+      pending.url = tab.url || pending.url;
+      await commitVisit(tabId);
+    }
+  }
+});
+
+/**
+ * Cleans up pending visits when a tab is closed.
+ */
+chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+  if (pendingVisits.has(tabId)) {
+    clearTimeout(pendingVisits.get(tabId).timeoutId);
+    pendingVisits.delete(tabId);
+  }
+});
+
+/**
+ * Cleans up pending visits when a tab is replaced (e.g. prerendering).
+ */
+chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
+  if (pendingVisits.has(removedTabId)) {
+    clearTimeout(pendingVisits.get(removedTabId).timeoutId);
+    pendingVisits.delete(removedTabId);
+  }
 });
 
 /**
