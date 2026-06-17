@@ -105,3 +105,73 @@ def test_cli_kindle_direct_file(tmp_path: Path, monkeypatch):
     assert result.exit_code == 0
     assert "Successfully imported" in result.output
     assert route.called
+
+
+@respx.mock
+def test_cli_tolino(tmp_path: Path, monkeypatch):
+    # Mock storage state path so we don't write to ~/.local/share/
+    monkeypatch.setattr("biograph_cli.bio._load_tolino_state", lambda: {"sent_bookmark_ids": [], "sent_book_progress": {}})
+    monkeypatch.setattr("biograph_cli.bio._save_tolino_state", lambda s: None)
+    
+    # Create fake mount structure
+    mount = tmp_path / "tolino_mount"
+    kobo_dir = mount / ".kobo"
+    kobo_dir.mkdir(parents=True)
+    db_file = kobo_dir / "KoboReader.sqlite"
+    
+    import sqlite3
+    conn = sqlite3.connect(str(db_file))
+    cursor = conn.cursor()
+    
+    # Create content table
+    cursor.execute("""
+        CREATE TABLE content (
+            ContentID TEXT PRIMARY KEY,
+            ContentType TEXT,
+            Title TEXT,
+            Attribution TEXT,
+            ReadStatus INTEGER,
+            ___PercentRead INTEGER,
+            DateLastRead TEXT,
+            DateCreated TEXT
+        )
+    """)
+    
+    # Create Bookmark table
+    cursor.execute("""
+        CREATE TABLE Bookmark (
+            BookmarkID TEXT PRIMARY KEY,
+            VolumeID TEXT,
+            ContentID TEXT,
+            StartContainerPath TEXT,
+            Text TEXT,
+            Annotation TEXT,
+            DateCreated TEXT,
+            Hidden INTEGER
+        )
+    """)
+    
+    # Insert a book
+    cursor.execute("""
+        INSERT INTO content (ContentID, ContentType, Title, Attribution, ReadStatus, ___PercentRead, DateLastRead, DateCreated)
+        VALUES ('book1', '6', 'The Hobbit', 'J.R.R. Tolkien', 1, 50, '2026-06-17T12:00:00.000Z', '2026-06-17T10:00:00.000Z')
+    """)
+    
+    # Insert a bookmark
+    cursor.execute("""
+        INSERT INTO Bookmark (BookmarkID, VolumeID, ContentID, StartContainerPath, Text, Annotation, DateCreated, Hidden)
+        VALUES ('bm1', 'book1', 'book1', 'OEBPS/chapter1.xhtml', 'Here is the highlighted text.', 'My annotation', '2026-06-17T11:00:00.000Z', 0)
+    """)
+    
+    conn.commit()
+    conn.close()
+    
+    route = respx.post(f"{FAKE_URL}/events/batch").mock(
+        return_value=httpx.Response(201, json=[{"id": 1}, {"id": 2}])
+    )
+    
+    result = runner.invoke(app, ["tolino", str(mount)])
+    assert result.exit_code == 0
+    assert "Successfully imported 2 events" in result.output
+    assert route.called
+

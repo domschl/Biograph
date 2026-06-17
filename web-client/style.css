@@ -40,6 +40,8 @@
   --ev-web-visit:        #fb923c;
   --ev-kindle-highlight: #fbbf24;
   --ev-kindle-book:      #c084fc;
+  --ev-tolino-highlight: #f59e0b;
+  --ev-tolino-book:      #a855f7;
   --ev-photo:            #f472b6;
   --ev-default:          #8a9ab5;
 
@@ -271,6 +273,8 @@ svg  { display: block; }
 .ev-badge-web-visit        { background: rgba(251,146,60,.13); color: var(--ev-web-visit); }
 .ev-badge-kindle-highlight { background: rgba(251,191,36,.13); color: var(--ev-kindle-highlight); }
 .ev-badge-kindle-book      { background: rgba(192,132,252,.13); color: var(--ev-kindle-book); }
+.ev-badge-tolino-highlight { background: rgba(245,158,11,.13); color: var(--ev-tolino-highlight); }
+.ev-badge-tolino-book      { background: rgba(168,85,247,.13); color: var(--ev-tolino-book); }
 .ev-badge-photo            { background: rgba(244,114,182,.13); color: var(--ev-photo); }
 .ev-badge-default          { background: rgba(138,154,181,.13); color: var(--ev-default); }
 
@@ -322,6 +326,10 @@ svg  { display: block; }
   color: var(--text-2);
   font-style: italic;
   line-height: 1.6;
+}
+
+.ev-card-tolino-highlight .ev-quote {
+  border-left-color: var(--ev-tolino-highlight);
 }
 
 .ev-book-meta {

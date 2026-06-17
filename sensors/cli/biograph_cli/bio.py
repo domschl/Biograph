@@ -550,6 +550,210 @@ def kindle(
     console.print(f"[green]✓[/green] Successfully imported {len(events_to_send)} events.")
 
 
+def _load_tolino_state() -> dict[str, Any]:
+    state_file = Path.home() / ".local" / "share" / "biograph" / "tolino_state.json"
+    if state_file.exists():
+        try:
+            with open(state_file, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"sent_bookmark_ids": [], "sent_book_progress": {}}
+
+
+def _save_tolino_state(state: dict[str, Any]) -> None:
+    state_file = Path.home() / ".local" / "share" / "biograph" / "tolino_state.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(state_file, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Tolino import command
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def tolino(
+    path: Path = typer.Argument(
+        None,
+        help="Path to Tolino mountpoint directory or directly to KoboReader.sqlite database. If omitted, it will try to auto-detect the mount point in /run/media.",
+    ),
+) -> None:
+    """Import books and highlights from a mounted Tolino/Kobo ereader."""
+    import sqlite3
+
+    if path is None:
+        detected = None
+        run_media = Path("/run/media")
+        if run_media.exists():
+            for user_dir in run_media.iterdir():
+                if user_dir.is_dir():
+                    ereader_dir = user_dir / "eReader"
+                    if ereader_dir.exists():
+                        detected = ereader_dir
+                        break
+        if detected:
+            console.print(f"[dim]Auto-detected Tolino mount point at: {detected}[/dim]")
+            path = detected
+        else:
+            err.print(
+                "[red]Error:[/red] No mount point specified and could not auto-detect Tolino at '/run/media/*/eReader'."
+            )
+            err.print("Please specify the path: [bold]bio tolino <path>[/bold]")
+            raise typer.Exit(1)
+
+    db_file = None
+    if path.is_file():
+        db_file = path
+    elif path.is_dir():
+        db_file = path / ".kobo" / "KoboReader.sqlite"
+    else:
+        err.print(f"[red]Error:[/red] '{path}' is neither a file nor a directory.")
+        raise typer.Exit(1)
+
+    if not db_file.exists():
+        err.print(f"[red]Error:[/red] Could not find SQLite database at '{db_file}'.")
+        raise typer.Exit(1)
+
+    temp_dir = tempfile.mkdtemp()
+    temp_db = Path(temp_dir) / "KoboReader.sqlite"
+    try:
+        shutil.copy2(db_file, temp_db)
+    except Exception as e:
+        err.print(f"[red]Error copying database file:[/red] {e}")
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise typer.Exit(1)
+
+    state = _load_tolino_state()
+    sent_bookmark_ids = set(state.get("sent_bookmark_ids", []))
+    sent_book_progress = state.get("sent_book_progress", {})
+
+    events_to_send = []
+    new_bookmark_ids = []
+    updated_book_progress = dict(sent_book_progress)
+
+    try:
+        conn = sqlite3.connect(str(temp_db))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # 1. Fetch books and progress
+        cursor.execute(
+            """
+            SELECT Title, Attribution, ContentID, ReadStatus, ___PercentRead, DateLastRead, DateCreated
+            FROM content
+            WHERE ContentType = '6' AND Title IS NOT NULL AND Title != ''
+            """
+        )
+        books = cursor.fetchall()
+        for book in books:
+            content_id = book["ContentID"]
+            title = book["Title"]
+            author = book["Attribution"] or "Unknown"
+            read_status = book["ReadStatus"]
+            percent_read = book["___PercentRead"]
+            last_read = book["DateLastRead"]
+
+            if last_read and (read_status > 0 or (percent_read is not None and percent_read > 0)):
+                prev_last_read = sent_book_progress.get(content_id)
+                if not prev_last_read or last_read > prev_last_read:
+                    updated_book_progress[content_id] = last_read
+                    events_to_send.append({
+                        "timestamp": last_read,
+                        "ev_type": "tolino-book",
+                        "source_host": "tolino",
+                        "source_app": "tolino-db",
+                        "content": {
+                            "book_title": title,
+                            "author": author,
+                            "content_id": content_id,
+                            "read_status": read_status,
+                            "percent_read": percent_read,
+                            "last_read": last_read
+                        },
+                        "tags": ["reading", "tolino"],
+                    })
+
+        # 2. Fetch highlights/bookmarks
+        cursor.execute(
+            """
+            SELECT b.BookmarkID, b.VolumeID, b.Text, b.Annotation, b.DateCreated, b.StartContainerPath,
+                   c.Title, c.Attribution
+            FROM Bookmark b
+            LEFT JOIN content c ON b.VolumeID = c.ContentID
+            WHERE b.Text IS NOT NULL AND b.Text != '' AND b.Hidden = 0
+            """
+        )
+        bookmarks = cursor.fetchall()
+        for bm in bookmarks:
+            bookmark_id = bm["BookmarkID"]
+            text = bm["Text"]
+            annotation = bm["Annotation"]
+            date_created = bm["DateCreated"]
+            location = bm["StartContainerPath"]
+            book_title = bm["Title"] or "Unknown Book"
+            author = bm["Attribution"] or "Unknown"
+
+            if bookmark_id not in sent_bookmark_ids:
+                new_bookmark_ids.append(bookmark_id)
+                timestamp = date_created if date_created else datetime.now(UTC).isoformat()
+                events_to_send.append({
+                    "timestamp": timestamp,
+                    "ev_type": "tolino-highlight",
+                    "source_host": "tolino",
+                    "source_app": "tolino-db",
+                    "content": {
+                        "book_title": book_title,
+                        "author": author,
+                        "highlight": text,
+                        "annotation": annotation,
+                        "bookmark_id": bookmark_id,
+                        "location": location
+                    },
+                    "tags": ["quotes", "tolino"],
+                })
+
+        conn.close()
+    except Exception as e:
+        err.print(f"[red]Database error:[/red] {e}")
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise typer.Exit(1)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    if not events_to_send:
+        console.print("[green]No new books read or highlights to import.[/green]")
+        return
+
+    books_count = sum(1 for e in events_to_send if e["ev_type"] == "tolino-book")
+    highlights_count = sum(1 for e in events_to_send if e["ev_type"] == "tolino-highlight")
+
+    console.print(
+        f"Found {len(events_to_send)} new events to send ({books_count} books progress updates, {highlights_count} highlights). Sending batch..."
+    )
+
+    config = _load_config()
+    with _http_client(config) as http:
+        try:
+            resp = http.post("/events/batch", json=events_to_send)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            err.print(f"[red]Server error {exc.response.status_code}:[/red] {exc.response.text}")
+            raise typer.Exit(1)
+        except httpx.RequestError as exc:
+            err.print(f"[red]Connection error:[/red] {exc}")
+            raise typer.Exit(1)
+
+    sent_bookmark_ids.update(new_bookmark_ids)
+    _save_tolino_state({
+        "sent_bookmark_ids": list(sent_bookmark_ids),
+        "sent_book_progress": updated_book_progress
+    })
+
+    console.print(f"[green]✓[/green] Successfully imported {len(events_to_send)} events.")
+
+
 # ---------------------------------------------------------------------------
 # Import / Export / Backup commands
 # ---------------------------------------------------------------------------

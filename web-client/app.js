@@ -180,8 +180,8 @@ function renderEventCard(event) {
   if (event.ev_type === 'note') badgeIcon = '📝';
   else if (event.ev_type === 'shell-cmd') badgeIcon = '$';
   else if (event.ev_type === 'web-visit') badgeIcon = '🌐';
-  else if (event.ev_type === 'kindle-highlight') badgeIcon = '“';
-  else if (event.ev_type === 'kindle-book') badgeIcon = '📖';
+  else if (event.ev_type === 'kindle-highlight' || event.ev_type === 'tolino-highlight') badgeIcon = '“';
+  else if (event.ev_type === 'kindle-book' || event.ev_type === 'tolino-book') badgeIcon = '📖';
   else if (event.ev_type === 'photo') badgeIcon = '📷';
   
   const badgeClass = `ev-badge ev-badge-${event.ev_type}`;
@@ -241,20 +241,25 @@ function renderEventCard(event) {
       </div>
       <a href="${url}" target="_blank" rel="noopener noreferrer" class="ev-url">${url}</a>
     `;
-  } else if (event.ev_type === 'kindle-highlight') {
+  } else if (event.ev_type === 'kindle-highlight' || event.ev_type === 'tolino-highlight') {
     contentHtml = `
       <div class="ev-quote">“${escapeHtml(c.highlight || '')}”</div>
+      ${c.annotation ? `<div class="ev-note" style="margin-top: 5px; font-style: italic; color: var(--text-2);">Note: ${escapeHtml(c.annotation)}</div>` : ''}
       <div class="ev-book-meta">
         — <strong>${escapeHtml(c.book_title || 'Unknown Book')}</strong> by ${escapeHtml(c.author || 'Unknown')}
         ${c.location ? `· Location ${c.location}` : ''}
       </div>
     `;
-  } else if (event.ev_type === 'kindle-book') {
+  } else if (event.ev_type === 'kindle-book' || event.ev_type === 'tolino-book') {
+    const isFinished = c.read_status === 2;
+    const progressText = c.percent_read !== undefined && c.percent_read !== null ? `· Progress: ${c.percent_read}%` : '';
+    const statusText = isFinished ? 'Finished book:' : 'Started or read book:';
     contentHtml = `
-      <div class="ev-title">Started or read book: <strong>${escapeHtml(c.book_title || 'Unknown Book')}</strong></div>
+      <div class="ev-title">${statusText} <strong>${escapeHtml(c.book_title || 'Unknown Book')}</strong></div>
       <div class="ev-book-meta">
         by ${escapeHtml(c.author || 'Unknown')}
         ${c.asin ? `· ASIN: ${escapeHtml(c.asin)}` : ''}
+        ${progressText}
         ${c.last_read ? `· Last read: ${new Date(c.last_read).toLocaleDateString()}` : ''}
       </div>
     `;
@@ -667,6 +672,12 @@ function renderSearchView(container) {
       <label class="filter-chip ${isActive('kindle-book')}">
         <input type="checkbox" value="kindle-book" class="filter-type-checkbox" ${isChecked('kindle-book')}> Book
       </label>
+      <label class="filter-chip ${isActive('tolino-highlight')}">
+        <input type="checkbox" value="tolino-highlight" class="filter-type-checkbox" ${isChecked('tolino-highlight')}> Tolino Quote
+      </label>
+      <label class="filter-chip ${isActive('tolino-book')}">
+        <input type="checkbox" value="tolino-book" class="filter-type-checkbox" ${isChecked('tolino-book')}> Tolino Book
+      </label>
       <label class="filter-chip ${isActive('photo')}">
         <input type="checkbox" value="photo" class="filter-type-checkbox" ${isChecked('photo')}> Photo
       </label>
@@ -1062,6 +1073,8 @@ async function renderStatsView(container) {
           'web-visit': '#fb923c',
           'kindle-highlight': '#fbbf24',
           'kindle-book': '#c084fc',
+          'tolino-highlight': '#f59e0b',
+          'tolino-book': '#a855f7',
           'photo': '#f472b6',
           'default': '#8a9ab5'
         };
@@ -1212,6 +1225,8 @@ function drawDonutChart(canvas, data) {
     'web-visit': '#fb923c',
     'kindle-highlight': '#fbbf24',
     'kindle-book': '#c084fc',
+    'tolino-highlight': '#f59e0b',
+    'tolino-book': '#a855f7',
     'photo': '#f472b6',
     'default': '#8a9ab5'
   };
