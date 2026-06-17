@@ -12,16 +12,24 @@ This service add-on for Kodi automatically logs movie playback events to your Bi
 
 You can install this add-on in Kodi in one of two ways:
 
-### Option 1: Direct File Copy (Recommended for local/Linux setups)
-Since Kodi and your CLI are on the same machine, you can link or copy the `service.biograph` directory directly into Kodi's addons folder:
+### Option 1: Direct File Copy (Recommended for local setups)
+Since Kodi and your CLI are on the same machine (or you want to copy the directory manually), copy the `service.biograph` directory directly into Kodi's addons folder:
 
+**Linux:**
 ```bash
 mkdir -p ~/.kodi/addons/
 cp -r service.biograph ~/.kodi/addons/
 ```
 
+**macOS:**
+```bash
+mkdir -p ~/Library/Application\ Support/Kodi/addons/
+cp -r service.biograph ~/Library/Application\ Support/Kodi/addons/
+```
+
 Then restart Kodi or enable it via:
 **Settings ➔ Add-ons ➔ My Add-ons ➔ Services ➔ Biograph Media Logger ➔ Enable**.
+
 
 ### Option 2: Install from ZIP
 If you want to install it on a remote Kodi box:
