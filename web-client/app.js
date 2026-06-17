@@ -170,6 +170,10 @@ function renderEventCard(event) {
   const card = document.createElement('article');
   card.className = 'event-card';
   card.setAttribute('data-id', event.id);
+  if (event.isMergedZshGroup && event.commands) {
+    const ids = event.commands.map(item => item.id).join(',');
+    card.setAttribute('data-merged-ids', ids);
+  }
   
   // Icon emoji selection
   let badgeIcon = '•';
@@ -199,10 +203,35 @@ function renderEventCard(event) {
   const c = event.content || {};
   
   if (event.ev_type === 'shell-cmd') {
-    contentHtml = `
-      <code>${escapeHtml(c.cmd || '')}</code>
-      ${c.cwd ? `<div class="ev-book-meta">in <code>${escapeHtml(c.cwd)}</code></div>` : ''}
-    `;
+    if (event.isMergedZshGroup) {
+      const commandItems = event.commands.map(item => {
+        const itemTime = new Date(item.timestamp);
+        const itemFormattedTime = itemTime.toLocaleTimeString(undefined, {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        });
+        return `
+          <div class="merged-command-item" style="margin-bottom: 6px; display: flex; align-items: baseline; flex-wrap: wrap;">
+            <span style="font-size: 11px; color: var(--text-3); margin-right: 8px; font-family: monospace;">${itemFormattedTime}</span>
+            <code style="word-break: break-all;">${escapeHtml(item.cmd || '')}</code>
+            ${item.cwd ? `<span class="ev-book-meta" style="display:inline; margin-left: 8px; font-size: 11px;">in <code>${escapeHtml(item.cwd)}</code></span>` : ''}
+          </div>
+        `;
+      }).join('');
+      
+      contentHtml = `
+        <div class="merged-commands-list" style="border-left: 2px solid var(--border); padding-left: 10px; margin-top: 5px;">
+          ${commandItems}
+        </div>
+      `;
+    } else {
+      contentHtml = `
+        <code>${escapeHtml(c.cmd || '')}</code>
+        ${c.cwd ? `<div class="ev-book-meta">in <code>${escapeHtml(c.cwd)}</code></div>` : ''}
+      `;
+    }
   } else if (event.ev_type === 'web-visit') {
     const title = c.title ? escapeHtml(c.title) : 'Web Visit';
     const url = c.url ? escapeHtml(c.url) : '#';
@@ -303,13 +332,88 @@ function renderEventCard(event) {
 }
 
 /**
+ * Merges consecutive zsh shell-cmd events if they belong to the same host
+ * and occurred within 5 minutes of each other.
+ */
+function preprocessEvents(events) {
+  if (!events || events.length === 0) return [];
+  
+  const merged = [];
+  let currentGroup = null;
+  
+  for (const event of events) {
+    const isZshCmd = event.ev_type === 'shell-cmd' && event.source_app === 'zsh';
+    
+    if (isZshCmd) {
+      if (currentGroup) {
+        const timeDiffMs = Math.abs(new Date(event.timestamp) - new Date(currentGroup.timestamp));
+        const sameHost = event.source_host === currentGroup.source_host;
+        
+        if (sameHost && timeDiffMs <= 5 * 60 * 1000) {
+          // Merge this command into the current group
+          currentGroup.commands.push({
+            cmd: event.content.cmd,
+            cwd: event.content.cwd,
+            timestamp: event.timestamp,
+            id: event.id
+          });
+          // Update group's tags to include any new tags
+          if (event.tags) {
+            for (const tag of event.tags) {
+              if (!currentGroup.tags.includes(tag)) {
+                currentGroup.tags.push(tag);
+              }
+            }
+          }
+          continue;
+        } else {
+          // Finish current group and start a new one
+          merged.push(currentGroup);
+          currentGroup = startNewGroup(event);
+        }
+      } else {
+        currentGroup = startNewGroup(event);
+      }
+    } else {
+      if (currentGroup) {
+        merged.push(currentGroup);
+        currentGroup = null;
+      }
+      merged.push({ ...event });
+    }
+  }
+  
+  if (currentGroup) {
+    merged.push(currentGroup);
+  }
+  
+  return merged;
+}
+
+function startNewGroup(event) {
+  return {
+    ...event,
+    tags: [...(event.tags || [])],
+    commands: [{
+      cmd: event.content.cmd,
+      cwd: event.content.cwd,
+      timestamp: event.timestamp,
+      id: event.id
+    }],
+    isMergedZshGroup: true
+  };
+}
+
+/**
  * Groups events by day and renders them inside the list container.
  */
 function renderEventList(events, container) {
   container.innerHTML = '';
   
+  const preprocessed = preprocessEvents(events);
+  
   const groups = {};
-  for (const event of events) {
+  for (const event of preprocessed) {
     const date = new Date(event.timestamp);
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -334,7 +438,17 @@ function renderEventList(events, container) {
     dayHeaderEl.className = 'day-header';
     
     const dayLabel = formatDayLabel(dayKey);
-    const countText = dayEvents.length === 1 ? '1 event' : `${dayEvents.length} events`;
+    
+    let actualCount = 0;
+    for (const event of dayEvents) {
+      if (event.isMergedZshGroup && event.commands) {
+        actualCount += event.commands.length;
+      } else {
+        actualCount += 1;
+      }
+    }
+    
+    const countText = actualCount === 1 ? '1 event' : `${actualCount} events`;
     
     dayHeaderEl.innerHTML = `
       <span class="day-label">${dayLabel}</span>
@@ -1460,6 +1574,9 @@ function attachEventCardListeners(container) {
  * Prompts user to edit tags and updates the event via PATCH.
  */
 async function editEventTags(id, card) {
+  const mergedIdsStr = card.getAttribute('data-merged-ids');
+  const ids = mergedIdsStr ? mergedIdsStr.split(',').map(Number) : [id];
+  
   let event = state.timelineEvents.find(e => e.id === id);
   if (!event) {
     event = state.searchResults.find(e => e.id === id);
@@ -1475,29 +1592,33 @@ async function editEventTags(id, card) {
     .filter(t => t.length > 0);
     
   try {
-    const response = await apiFetch(`/events/${id}`, {
-      method: 'PATCH',
-      body: { tags: newTags }
-    });
+    // Update all events in the group in parallel
+    await Promise.all(ids.map(async (currId) => {
+      const response = await apiFetch(`/events/${currId}`, {
+        method: 'PATCH',
+        body: { tags: newTags }
+      });
+      if (!response.ok) {
+        throw new Error(`Server returned HTTP ${response.status} for event ${currId}`);
+      }
+      
+      const updated = await response.json();
+      const updateInArray = (arr) => {
+        const idx = arr.findIndex(e => e.id === currId);
+        if (idx !== -1) arr[idx].tags = updated.tags;
+      };
+      updateInArray(state.timelineEvents);
+      updateInArray(state.searchResults);
+    }));
     
-    if (!response.ok) {
-      throw new Error(`Server returned HTTP ${response.status}`);
-    }
-    
-    const updated = await response.json();
-    
-    const updateInArray = (arr) => {
-      const idx = arr.findIndex(e => e.id === id);
-      if (idx !== -1) arr[idx].tags = updated.tags;
-    };
-    updateInArray(state.timelineEvents);
-    updateInArray(state.searchResults);
+    // Update local group memory for prompt display next time
+    event.tags = newTags;
     
     const updateCardTagsDOM = () => {
       const tagsContainer = card.querySelector('.event-tags');
       if (tagsContainer) {
-        if (updated.tags.length > 0) {
-          tagsContainer.innerHTML = updated.tags.map(t => `<span class="tag-pill">${escapeHtml(t)}</span>`).join('');
+        if (newTags.length > 0) {
+          tagsContainer.innerHTML = newTags.map(t => `<span class="tag-pill">${escapeHtml(t)}</span>`).join('');
         } else {
           tagsContainer.innerHTML = `<span class="tag-pill-placeholder" style="font-size: 10.5px; opacity: 0.3; cursor: pointer;">+ add tags</span>`;
           const placeholder = tagsContainer.querySelector('.tag-pill-placeholder');
@@ -1524,21 +1645,29 @@ async function editEventTags(id, card) {
  * Prompts user to confirm deletion and updates backend via DELETE.
  */
 async function deleteEvent(id, card) {
-  if (!confirm('Are you sure you want to delete this event? This action cannot be undone.')) {
+  const mergedIdsStr = card.getAttribute('data-merged-ids');
+  const ids = mergedIdsStr ? mergedIdsStr.split(',').map(Number) : [id];
+  
+  const confirmMsg = ids.length > 1
+    ? `Are you sure you want to delete this block of ${ids.length} commands? This action cannot be undone.`
+    : 'Are you sure you want to delete this event? This action cannot be undone.';
+    
+  if (!confirm(confirmMsg)) {
     return;
   }
   
   try {
-    const response = await apiFetch(`/events/${id}`, {
-      method: 'DELETE'
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Server returned HTTP ${response.status}`);
-    }
-    
-    state.timelineEvents = state.timelineEvents.filter(e => e.id !== id);
-    state.searchResults = state.searchResults.filter(e => e.id !== id);
+    // Delete all events in the group in parallel
+    await Promise.all(ids.map(async (currId) => {
+      const response = await apiFetch(`/events/${currId}`, {
+        method: 'DELETE'
+      });
+      if (!response.ok) {
+        throw new Error(`Server returned HTTP ${response.status} for event ${currId}`);
+      }
+      state.timelineEvents = state.timelineEvents.filter(e => e.id !== currId);
+      state.searchResults = state.searchResults.filter(e => e.id !== currId);
+    }));
     
     const removeCardDOM = () => {
       const dayGroup = card.closest('.day-group');
@@ -1549,7 +1678,7 @@ async function deleteEvent(id, card) {
       }
       
       if (state.currentView === 'timeline') {
-        state.timelineTotal = Math.max(0, state.timelineTotal - 1);
+        state.timelineTotal = Math.max(0, state.timelineTotal - ids.length);
         const metaEl = document.getElementById('timeline-meta');
         if (metaEl) {
           metaEl.textContent = `Showing ${state.timelineEvents.length} of ${state.timelineTotal} events`;
@@ -1567,7 +1696,7 @@ async function deleteEvent(id, card) {
           }
         }
       } else if (state.currentView === 'search') {
-        state.searchTotal = Math.max(0, state.searchTotal - 1);
+        state.searchTotal = Math.max(0, state.searchTotal - ids.length);
         const metaEl = document.getElementById('search-result-meta');
         if (metaEl) {
           metaEl.textContent = `Found ${state.searchTotal} events (showing ${state.searchResults.length})`;
