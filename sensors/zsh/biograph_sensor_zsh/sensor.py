@@ -333,7 +333,7 @@ class HistoryHandler(FileSystemEventHandler):
 
     def _process(self) -> None:
         new_events, max_ts = parse_history(
-            self._history_file, self._state.last_timestamp, self._hostname
+            self._history_file, self._state.last_timestamp, hostname=self._hostname
         )
 
         if not new_events and not self._buffer:

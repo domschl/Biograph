@@ -13,6 +13,7 @@ import httpx
 from biograph_sensor_zsh.sensor import (
     EventBuffer,
     State,
+    HistoryHandler,
     parse_history,
     send_events,
 )
@@ -201,3 +202,31 @@ def test_send_events_connection_error() -> None:
     )
     result = send_events(SAMPLE_EVENTS, FAKE_URL, FAKE_TOKEN, max_retries=1)
     assert result is False
+
+
+@respx.mock
+def test_history_handler_process(tmp_path: Path) -> None:
+    f = _write_history(tmp_path, ": 1000000099:0;cargo run\n")
+    state = State(tmp_path / "state.json")
+    buffer = EventBuffer(tmp_path / "buffer.json")
+
+    respx.post(f"{FAKE_URL}/events/batch").mock(
+        return_value=httpx.Response(201, json=[])
+    )
+
+    handler = HistoryHandler(
+        history_file=f,
+        state=state,
+        buffer=buffer,
+        server_url=FAKE_URL,
+        token=FAKE_TOKEN,
+        hostname="my-custom-host",
+    )
+
+    # Trigger catch-up/initial pass
+    handler.process_initial()
+
+    # State should update to the last timestamp seen (1000000099)
+    assert state.last_timestamp == 1000000099
+    assert len(buffer) == 0
+
