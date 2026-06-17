@@ -1,6 +1,6 @@
 /* ============================================================
-   Biograph Web Client — app.js
-   Responsive Single Page Application with View Transitions
+   Biograph Web Client — app.js (v2)
+   Single Page Application with Canvas Charts and Tag Manager
    ============================================================ */
 
 // ── 1. Application State ─────────────────────────────────────
@@ -27,6 +27,10 @@ const state = {
   
   isConnected: null // null = checking, true = connected, false = error
 };
+
+// Intersection observer for infinite scrolling
+let timelineObserver = null;
+let searchObserver = null;
 
 // ── 2. Utility Functions ─────────────────────────────────────
 
@@ -81,7 +85,6 @@ function formatDayLabel(dateStr) {
   } else if (dateStr === yesterdayStr) {
     return 'Yesterday';
   } else {
-    // Parse at midnight local time to prevent off-by-one timezone shifts
     const [year, month, day] = dateStr.split('-').map(Number);
     const d = new Date(year, month - 1, day);
     return d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -238,7 +241,6 @@ function renderEventCard(event) {
       <div class="ev-book-meta">Path: <code>${escapeHtml(c.path || '')}</code></div>
     `;
   } else {
-    // General fallback
     const summary = event.summary ? escapeHtml(event.summary) : `Event of type ${event.ev_type}`;
     contentHtml = `
       <div>${summary}</div>
@@ -283,7 +285,6 @@ function renderEventCard(event) {
     </div>
   `;
   
-  // Hover effect to reveal buttons smoothly
   card.addEventListener('mouseenter', () => {
     const editBtn = card.querySelector('.card-edit-btn');
     const deleteBtn = card.querySelector('.card-delete-btn');
@@ -349,6 +350,27 @@ function renderEventList(events, container) {
     
     container.appendChild(dayGroupEl);
   }
+}
+
+/**
+ * Monitors list elements and sets up infinite scroll trigger.
+ */
+function setupInfiniteScroll(buttonId, callback) {
+  const loadMoreBtn = document.getElementById(buttonId);
+  if (!loadMoreBtn) return;
+  
+  const observer = new IntersectionObserver((entries) => {
+    const entry = entries[0];
+    if (entry.isIntersecting && !loadMoreBtn.disabled && loadMoreBtn.style.display !== 'none') {
+      loadMoreBtn.disabled = true;
+      callback();
+    }
+  }, {
+    rootMargin: '200px'
+  });
+  
+  observer.observe(loadMoreBtn);
+  return observer;
 }
 
 // ── 5. View Managers ─────────────────────────────────────────
@@ -452,6 +474,15 @@ async function loadTimelineEvents() {
         loadMoreBtn.style.display = 'flex';
         loadMoreBtn.disabled = false;
         loadMoreBtn.querySelector('span').textContent = 'Load More';
+        
+        // Initialise virtual infinite scroll trigger
+        if (isFirstPage) {
+          if (timelineObserver) timelineObserver.disconnect();
+          timelineObserver = setupInfiniteScroll('timeline-load-more', () => {
+            state.timelineOffset += state.timelineLimit;
+            loadTimelineEvents();
+          });
+        }
       } else {
         loadMoreBtn.style.display = 'none';
       }
@@ -488,7 +519,6 @@ async function loadTimelineEvents() {
  * Initialise and load the Search View.
  */
 function renderSearchView(container) {
-  // Checkboxes are dynamically checked based on state
   const isChecked = (type) => state.searchTypes.includes(type) ? 'checked' : '';
   const isActive = (type) => state.searchTypes.includes(type) ? 'chip-active' : '';
   
@@ -546,7 +576,6 @@ function renderSearchView(container) {
     </button>
   `;
   
-  // Event listeners
   const qInput = document.getElementById('search-q');
   const fromInput = document.getElementById('search-from-date');
   const toInput = document.getElementById('search-to-date');
@@ -591,7 +620,6 @@ function renderSearchView(container) {
   fromInput.addEventListener('change', handleDateChange);
   toInput.addEventListener('change', handleDateChange);
   
-  // Trigger initial search if inputs are pre-populated
   executeSearch();
 }
 
@@ -698,6 +726,15 @@ async function executeSearch() {
         loadMoreBtn.style.display = 'flex';
         loadMoreBtn.disabled = false;
         loadMoreBtn.querySelector('span').textContent = 'Load More';
+        
+        // Initialise virtual infinite scroll trigger
+        if (isFirstPage) {
+          if (searchObserver) searchObserver.disconnect();
+          searchObserver = setupInfiniteScroll('search-load-more', () => {
+            state.searchOffset += state.searchLimit;
+            executeSearch();
+          });
+        }
       } else {
         loadMoreBtn.style.display = 'none';
       }
@@ -796,13 +833,11 @@ function renderSettingsView(container) {
     
     try {
       const base = testUrl ? testUrl.replace(/\/+$/, '') : window.location.origin;
-      // First verify health
       const resHealth = await fetch(`${base}/health`);
       if (!resHealth.ok) {
         throw new Error(`Server returned HTTP ${resHealth.status}`);
       }
       
-      // Then verify token via /events?limit=1
       const headers = {};
       if (testToken) {
         headers['Authorization'] = `Bearer ${testToken}`;
@@ -828,6 +863,557 @@ function renderSettingsView(container) {
   });
 }
 
+/**
+ * Initialise and load the Stats Dashboard View.
+ */
+async function renderStatsView(container) {
+  container.innerHTML = `
+    <header class="view-header">
+      <h1>Stats</h1>
+      <div class="view-meta" id="stats-meta">Analyzing your timeline…</div>
+    </header>
+    <div id="stats-alerts"></div>
+    
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 24px;">
+      <!-- Donut Chart -->
+      <div class="settings-card" style="display: flex; flex-direction: column; align-items: center;">
+        <h2>Event Type Breakdown</h2>
+        <canvas id="donut-canvas" width="220" height="220" style="margin: 15px 0; max-width: 100%;"></canvas>
+        <div id="donut-legend" style="width: 100%; display: flex; flex-wrap: wrap; gap: 8px 12px; justify-content: center; font-size: 11.5px; margin-top: 10px;"></div>
+      </div>
+      
+      <!-- Bar Chart -->
+      <div class="settings-card" style="display: flex; flex-direction: column;">
+        <h2>Daily Activity (Last 14 Days)</h2>
+        <canvas id="bar-canvas" width="300" height="220" style="margin: 15px 0; max-width: 100%;"></canvas>
+      </div>
+    </div>
+    
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;">
+      <!-- Top Commands -->
+      <div class="settings-card" id="top-commands-card" style="display: none;">
+        <h2>Top Shell Commands</h2>
+        <div id="top-commands-list" style="display: flex; flex-direction: column; gap: 12px; margin-top: 15px;"></div>
+      </div>
+      
+      <!-- Top Websites -->
+      <div class="settings-card" id="top-websites-card" style="display: none;">
+        <h2>Top Visited Websites</h2>
+        <div id="top-websites-list" style="display: flex; flex-direction: column; gap: 12px; margin-top: 15px;"></div>
+      </div>
+    </div>
+  `;
+  
+  const alertsEl = document.getElementById('stats-alerts');
+  const metaEl = document.getElementById('stats-meta');
+  
+  if (!state.token) {
+    if (alertsEl) {
+      alertsEl.innerHTML = `
+        <div class="alert alert-warn">
+          Please configure your Access Token in <a href="#settings">Settings</a> to load stats.
+        </div>
+      `;
+    }
+    if (metaEl) metaEl.textContent = 'Configuration required';
+    return;
+  }
+  
+  try {
+    // 1. Fetch aggregate metrics
+    const statsResponse = await apiFetch('/stats/');
+    if (!statsResponse.ok) throw new Error(`Stats endpoint failed: HTTP ${statsResponse.status}`);
+    const statsData = await statsResponse.json();
+    
+    // 2. Fetch recent events for detailed analysis
+    const eventsResponse = await apiFetch('/events/?limit=1000');
+    if (!eventsResponse.ok) throw new Error(`Events fetch failed: HTTP ${eventsResponse.status}`);
+    const eventsData = await eventsResponse.json();
+    const events = eventsData.items;
+    
+    if (metaEl) {
+      metaEl.textContent = `Analyzing ${statsData.total_events} total events (including detail review of recent ${events.length})`;
+    }
+    
+    // Render Donut Chart
+    const donutCanvas = document.getElementById('donut-canvas');
+    if (donutCanvas) {
+      drawDonutChart(donutCanvas, statsData.by_type);
+      
+      const legendEl = document.getElementById('donut-legend');
+      if (legendEl) {
+        const typeColors = {
+          'note': '#60a5fa',
+          'shell-cmd': '#4ade80',
+          'web-visit': '#fb923c',
+          'kindle-highlight': '#fbbf24',
+          'kindle-book': '#c084fc',
+          'photo': '#f472b6',
+          'default': '#8a9ab5'
+        };
+        legendEl.innerHTML = statsData.by_type.map(item => {
+          const color = typeColors[item.ev_type] || typeColors.default;
+          return `
+            <div style="display: flex; align-items: center; gap: 5px;">
+              <div style="width: 10px; height: 10px; border-radius: 2px; background: ${color};"></div>
+              <span style="text-transform: capitalize;">${escapeHtml(item.ev_type)} (${item.count})</span>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+    
+    // Render Bar Chart (Daily activity for last 14 days)
+    const barCanvas = document.getElementById('bar-canvas');
+    if (barCanvas) {
+      const dailyCounts = {};
+      const now = new Date();
+      for (let i = 13; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(now.getDate() - i);
+        const yStr = d.getFullYear();
+        const mStr = String(d.getMonth() + 1).padStart(2, '0');
+        const dStr = String(d.getDate()).padStart(2, '0');
+        const dayKey = `${yStr}-${mStr}-${dStr}`;
+        dailyCounts[dayKey] = 0;
+      }
+      
+      events.forEach(e => {
+        const date = new Date(e.timestamp);
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const dayKey = `${y}-${m}-${day}`;
+        if (dayKey in dailyCounts) {
+          dailyCounts[dayKey]++;
+        }
+      });
+      
+      drawBarChart(barCanvas, dailyCounts);
+    }
+    
+    // Aggregate Top Shell Commands & Websites
+    const shellCommands = {};
+    const webSites = {};
+    events.forEach(e => {
+      if (e.ev_type === 'shell-cmd' && e.content?.cmd) {
+        const bin = e.content.cmd.trim().split(/\s+/)[0];
+        shellCommands[bin] = (shellCommands[bin] || 0) + 1;
+      } else if (e.ev_type === 'web-visit' && e.content?.url) {
+        try {
+          const url = new URL(e.content.url);
+          const host = url.hostname.replace('www.', '');
+          webSites[host] = (webSites[host] || 0) + 1;
+        } catch (_) {}
+      }
+    });
+    
+    const topCommands = Object.keys(shellCommands)
+      .map(k => ({ name: k, count: shellCommands[k] }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+      
+    const topSites = Object.keys(webSites)
+      .map(k => ({ name: k, count: webSites[k] }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+      
+    // Render Top Commands progress bars
+    const commandsCard = document.getElementById('top-commands-card');
+    const commandsList = document.getElementById('top-commands-list');
+    if (topCommands.length > 0 && commandsCard && commandsList) {
+      commandsCard.style.display = 'block';
+      const maxCount = topCommands[0].count;
+      commandsList.innerHTML = topCommands.map(cmd => {
+        const pct = (cmd.count / maxCount) * 100;
+        return `
+          <div>
+            <div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 3px;">
+              <code>${escapeHtml(cmd.name)}</code>
+              <span>${cmd.count} runs</span>
+            </div>
+            <div style="height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; border: 1px solid var(--border);">
+              <div style="width: ${pct}%; height: 100%; background: var(--success); border-radius: 3px;"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    
+    // Render Top Sites progress bars
+    const sitesCard = document.getElementById('top-websites-card');
+    const sitesList = document.getElementById('top-websites-list');
+    if (topSites.length > 0 && sitesCard && sitesList) {
+      sitesCard.style.display = 'block';
+      const maxCount = topSites[0].count;
+      sitesList.innerHTML = topSites.map(site => {
+        const pct = (site.count / maxCount) * 100;
+        return `
+          <div>
+            <div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 3px;">
+              <span style="font-weight: 500;">${escapeHtml(site.name)}</span>
+              <span>${site.count} visits</span>
+            </div>
+            <div style="height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; border: 1px solid var(--border);">
+              <div style="width: ${pct}%; height: 100%; background: var(--ev-web-visit); border-radius: 3px;"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    
+  } catch (err) {
+    console.error('Failed to load stats details', err);
+    if (alertsEl) {
+      alertsEl.innerHTML = `
+        <div class="alert alert-err">
+          Failed to load stats details: ${escapeHtml(err.message)}
+        </div>
+      `;
+    }
+  }
+}
+
+/**
+ * Draws a donut chart onto a target canvas using custom coordinates.
+ */
+function drawDonutChart(canvas, data) {
+  const ctx = canvas.getContext('2d');
+  const width = canvas.width;
+  const height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
+  
+  const total = data.reduce((sum, item) => sum + item.count, 0);
+  if (total === 0) {
+    ctx.fillStyle = '#8a9ab5';
+    ctx.font = '13px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No data available', width / 2, height / 2);
+    return;
+  }
+  
+  const typeColors = {
+    'note': '#60a5fa',
+    'shell-cmd': '#4ade80',
+    'web-visit': '#fb923c',
+    'kindle-highlight': '#fbbf24',
+    'kindle-book': '#c084fc',
+    'photo': '#f472b6',
+    'default': '#8a9ab5'
+  };
+  
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const outerRadius = Math.min(width, height) * 0.45;
+  const innerRadius = outerRadius * 0.6;
+  
+  let startAngle = -Math.PI / 2;
+  
+  data.forEach(item => {
+    const sliceAngle = (item.count / total) * 2 * Math.PI;
+    const color = typeColors[item.ev_type] || typeColors.default;
+    
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, outerRadius, startAngle, startAngle + sliceAngle);
+    ctx.arc(centerX, centerY, innerRadius, startAngle + sliceAngle, startAngle, true);
+    ctx.closePath();
+    
+    ctx.fillStyle = color;
+    ctx.fill();
+    
+    startAngle += sliceAngle;
+  });
+  
+  // Cut out center to create the donut shape matching --surface-1
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, innerRadius, 0, 2 * Math.PI);
+  ctx.fillStyle = '#0d1117';
+  ctx.fill();
+}
+
+/**
+ * Draws a bar chart onto a target canvas with gradients and axis lines.
+ */
+function drawBarChart(canvas, dailyCounts) {
+  const ctx = canvas.getContext('2d');
+  const width = canvas.width;
+  const height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
+  
+  const days = Object.keys(dailyCounts).sort();
+  if (days.length === 0) {
+    ctx.fillStyle = '#8a9ab5';
+    ctx.font = '13px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No historical data', width / 2, height / 2);
+    return;
+  }
+  
+  const paddingLeft = 32;
+  const paddingRight = 12;
+  const paddingTop = 12;
+  const paddingBottom = 26;
+  
+  const graphWidth = width - paddingLeft - paddingRight;
+  const graphHeight = height - paddingTop - paddingBottom;
+  
+  const counts = days.map(d => dailyCounts[d]);
+  const maxCount = Math.max(...counts, 4);
+  
+  ctx.strokeStyle = 'rgba(96, 128, 200, 0.08)';
+  ctx.lineWidth = 1;
+  
+  const numGridLines = 4;
+  for (let i = 0; i <= numGridLines; i++) {
+    const y = paddingTop + (graphHeight * i / numGridLines);
+    ctx.beginPath();
+    ctx.moveTo(paddingLeft, y);
+    ctx.lineTo(width - paddingRight, y);
+    ctx.stroke();
+    
+    const val = Math.round(maxCount * (numGridLines - i) / numGridLines);
+    ctx.fillStyle = '#445168';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(val), paddingLeft - 6, y + 3);
+  }
+  
+  const barWidth = (graphWidth / days.length) * 0.55;
+  const barSpacing = (graphWidth / days.length) * 0.45;
+  
+  days.forEach((day, idx) => {
+    const count = dailyCounts[day];
+    const barHeight = (count / maxCount) * graphHeight;
+    const x = paddingLeft + (idx * (barWidth + barSpacing)) + (barSpacing / 2);
+    const y = height - paddingBottom - barHeight;
+    
+    if (barHeight > 0) {
+      const grad = ctx.createLinearGradient(x, y, x, y + barHeight);
+      grad.addColorStop(0, '#7c6ef5');
+      grad.addColorStop(1, 'rgba(124, 110, 245, 0.2)');
+      
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      const radius = Math.min(3, barHeight);
+      ctx.roundRect(x, y, barWidth, barHeight, [radius, radius, 0, 0]);
+      ctx.fill();
+    }
+    
+    const d = new Date(day + 'T00:00:00');
+    const label = d.getDate();
+    
+    ctx.fillStyle = '#8a9ab5';
+    ctx.font = '10px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(label), x + (barWidth / 2), height - paddingBottom + 16);
+  });
+}
+
+/**
+ * Initialise and load the Tag Manager View.
+ */
+async function loadTagsView(container) {
+  container.innerHTML = `
+    <header class="view-header">
+      <h1>Tags</h1>
+      <div class="view-meta" id="tags-meta">Scanning events…</div>
+    </header>
+    <div id="tags-alerts"></div>
+    <div id="tags-list"></div>
+  `;
+  
+  const alertsEl = document.getElementById('tags-alerts');
+  const listEl = document.getElementById('tags-list');
+  const metaEl = document.getElementById('tags-meta');
+  
+  if (!state.token) {
+    if (alertsEl) {
+      alertsEl.innerHTML = `
+        <div class="alert alert-warn">
+          Please configure your Access Token in <a href="#settings">Settings</a> to scan tags.
+        </div>
+      `;
+    }
+    if (metaEl) metaEl.textContent = 'Configuration required';
+    return;
+  }
+  
+  listEl.innerHTML = `
+    <div class="spinner-wrap">
+      <div class="spinner"></div>
+    </div>
+  `;
+  
+  try {
+    const response = await apiFetch('/events/?limit=1000');
+    if (!response.ok) {
+      throw new Error(`Server returned HTTP ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const events = data.items;
+    
+    const tagsCount = {};
+    events.forEach(e => {
+      if (e.tags) {
+        e.tags.forEach(t => {
+          tagsCount[t] = (tagsCount[t] || 0) + 1;
+        });
+      }
+    });
+    
+    const sortedTags = Object.keys(tagsCount).sort((a, b) => b.localeCompare(a));
+    
+    if (sortedTags.length === 0) {
+      listEl.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🏷️</div>
+          <h2 class="empty-title">No tags found</h2>
+          <p class="empty-desc">Your logged events do not contain any tags. Add tags in the timeline to see them here.</p>
+        </div>
+      `;
+      if (metaEl) metaEl.textContent = '0 tags';
+      return;
+    }
+    
+    if (metaEl) {
+      metaEl.textContent = `Showing ${sortedTags.length} unique tags scanned from recent events`;
+    }
+    
+    listEl.innerHTML = '';
+    
+    sortedTags.forEach(tag => {
+      const count = tagsCount[tag];
+      const card = document.createElement('div');
+      card.className = 'settings-card';
+      card.style.marginBottom = '10px';
+      card.style.padding = '14px 20px';
+      
+      card.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <strong style="font-size: 14px; color: var(--primary);">#${escapeHtml(tag)}</strong>
+            <span style="font-size: 11.5px; color: var(--text-3); margin-left: 6px;">(${count} events)</span>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary rename-tag-btn" data-tag="${escapeHtml(tag)}" style="padding: 5px 12px; font-size: 12px;">Rename</button>
+            <button class="btn btn-secondary delete-tag-btn" data-tag="${escapeHtml(tag)}" style="padding: 5px 12px; font-size: 12px; color: var(--danger);">Delete</button>
+          </div>
+        </div>
+      `;
+      
+      card.querySelector('.rename-tag-btn').addEventListener('click', () => {
+        renameTag(tag, sortedTags);
+      });
+      
+      card.querySelector('.delete-tag-btn').addEventListener('click', () => {
+        deleteTag(tag);
+      });
+      
+      listEl.appendChild(card);
+    });
+    
+  } catch (err) {
+    console.error('Failed to load tag database', err);
+    listEl.innerHTML = `
+      <div class="alert alert-err">
+        Failed to load tag database: ${escapeHtml(err.message)}
+      </div>
+    `;
+  }
+}
+
+/**
+ * Prompts to rename a tag, handling merges if the target tag already exists.
+ */
+async function renameTag(oldName, existingTags) {
+  const newName = prompt(`Rename tag '#${oldName}' to:`, oldName);
+  if (newName === null) return;
+  const cleanedNewName = newName.trim();
+  if (!cleanedNewName || cleanedNewName === oldName) return;
+  
+  if (existingTags.includes(cleanedNewName)) {
+    if (!confirm(`Tag '#${cleanedNewName}' already exists. Do you want to merge '#${oldName}' into '#${cleanedNewName}'? This will update all associated events.`)) {
+      return;
+    }
+  }
+  
+  const listEl = document.getElementById('tags-list');
+  listEl.innerHTML = `
+    <div class="spinner-wrap" style="flex-direction: column; gap: 10px;">
+      <div class="spinner"></div>
+      <div style="color: var(--text-2); font-size: 13px;">Updating matching events...</div>
+    </div>
+  `;
+  
+  try {
+    const response = await apiFetch(`/events/?limit=1000&tags=${encodeURIComponent(oldName)}`);
+    if (!response.ok) throw new Error(`Query failed: HTTP ${response.status}`);
+    const data = await response.json();
+    const events = data.items;
+    
+    let successCount = 0;
+    for (const e of events) {
+      let nextTags = e.tags.filter(t => t !== oldName);
+      if (!nextTags.includes(cleanedNewName)) {
+        nextTags.push(cleanedNewName);
+      }
+      
+      const patch = await apiFetch(`/events/${e.id}`, {
+        method: 'PATCH',
+        body: { tags: nextTags }
+      });
+      if (patch.ok) successCount++;
+    }
+    
+    alert(`Successfully updated ${successCount} event(s).`);
+    loadTagsView(document.getElementById('main'));
+  } catch (err) {
+    alert(`Failed to rename tag: ${err.message}`);
+    loadTagsView(document.getElementById('main'));
+  }
+}
+
+/**
+ * Confirms and deletes a tag from all matching events.
+ */
+async function deleteTag(tagName) {
+  if (!confirm(`Are you sure you want to delete the tag '#${tagName}' from all events? This cannot be undone.`)) {
+    return;
+  }
+  
+  const listEl = document.getElementById('tags-list');
+  listEl.innerHTML = `
+    <div class="spinner-wrap" style="flex-direction: column; gap: 10px;">
+      <div class="spinner"></div>
+      <div style="color: var(--text-2); font-size: 13px;">Stripping tag from events...</div>
+    </div>
+  `;
+  
+  try {
+    const response = await apiFetch(`/events/?limit=1000&tags=${encodeURIComponent(tagName)}`);
+    if (!response.ok) throw new Error(`Query failed: HTTP ${response.status}`);
+    const data = await response.json();
+    const events = data.items;
+    
+    let successCount = 0;
+    for (const e of events) {
+      let nextTags = e.tags.filter(t => t !== tagName);
+      const patch = await apiFetch(`/events/${e.id}`, {
+        method: 'PATCH',
+        body: { tags: nextTags }
+      });
+      if (patch.ok) successCount++;
+    }
+    
+    alert(`Removed tag from ${successCount} event(s).`);
+    loadTagsView(document.getElementById('main'));
+  } catch (err) {
+    alert(`Failed to delete tag: ${err.message}`);
+    loadTagsView(document.getElementById('main'));
+  }
+}
+
 // ── 6. Event Card Interactions ──────────────────────────────
 
 /**
@@ -845,7 +1431,6 @@ function attachEventCardListeners(container) {
       });
     }
     
-    // Also bind click to the placeholder "+ add tags" pill if tags are empty
     const addPlaceholder = card.querySelector('.tag-pill-placeholder');
     if (addPlaceholder) {
       addPlaceholder.addEventListener('click', (e) => {
@@ -853,7 +1438,6 @@ function attachEventCardListeners(container) {
         editEventTags(id, card);
       });
       
-      // Show placeholder on card hover for discoverability
       card.addEventListener('mouseenter', () => {
         addPlaceholder.style.display = 'inline-block';
       });
@@ -902,7 +1486,6 @@ async function editEventTags(id, card) {
     
     const updated = await response.json();
     
-    // Update local state arrays
     const updateInArray = (arr) => {
       const idx = arr.findIndex(e => e.id === id);
       if (idx !== -1) arr[idx].tags = updated.tags;
@@ -910,7 +1493,6 @@ async function editEventTags(id, card) {
     updateInArray(state.timelineEvents);
     updateInArray(state.searchResults);
     
-    // Smoothly morph card tags via View Transitions
     const updateCardTagsDOM = () => {
       const tagsContainer = card.querySelector('.event-tags');
       if (tagsContainer) {
@@ -918,7 +1500,6 @@ async function editEventTags(id, card) {
           tagsContainer.innerHTML = updated.tags.map(t => `<span class="tag-pill">${escapeHtml(t)}</span>`).join('');
         } else {
           tagsContainer.innerHTML = `<span class="tag-pill-placeholder" style="font-size: 10.5px; opacity: 0.3; cursor: pointer;">+ add tags</span>`;
-          // Re-bind click to new placeholder
           const placeholder = tagsContainer.querySelector('.tag-pill-placeholder');
           placeholder.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -956,21 +1537,17 @@ async function deleteEvent(id, card) {
       throw new Error(`Server returned HTTP ${response.status}`);
     }
     
-    // Remove from state arrays
     state.timelineEvents = state.timelineEvents.filter(e => e.id !== id);
     state.searchResults = state.searchResults.filter(e => e.id !== id);
     
-    // Smoothly animate the card deletion
     const removeCardDOM = () => {
       const dayGroup = card.closest('.day-group');
       card.remove();
       
-      // Clean up empty day groups
       if (dayGroup && dayGroup.querySelectorAll('.event-card').length === 0) {
         dayGroup.remove();
       }
       
-      // Update meta information totals
       if (state.currentView === 'timeline') {
         state.timelineTotal = Math.max(0, state.timelineTotal - 1);
         const metaEl = document.getElementById('timeline-meta');
@@ -1044,6 +1621,16 @@ function updateSidebarActiveLink(viewName) {
 function navigateToView(viewName) {
   if (state.currentView === viewName) return;
   
+  // Clear any existing infinite scroll observers to avoid leaks
+  if (timelineObserver) {
+    timelineObserver.disconnect();
+    timelineObserver = null;
+  }
+  if (searchObserver) {
+    searchObserver.disconnect();
+    searchObserver = null;
+  }
+  
   updateSidebarActiveLink(viewName);
   
   const updateDOM = () => {
@@ -1055,6 +1642,10 @@ function navigateToView(viewName) {
       renderTimelineView(mainEl);
     } else if (viewName === 'search') {
       renderSearchView(mainEl);
+    } else if (viewName === 'stats') {
+      renderStatsView(mainEl);
+    } else if (viewName === 'tags') {
+      loadTagsView(mainEl);
     } else if (viewName === 'settings') {
       renderSettingsView(mainEl);
     }
@@ -1092,6 +1683,10 @@ function handleRouting() {
     navigateToView('timeline');
   } else if (hash === '#search') {
     navigateToView('search');
+  } else if (hash === '#stats') {
+    navigateToView('stats');
+  } else if (hash === '#tags') {
+    navigateToView('tags');
   } else if (hash === '#settings') {
     navigateToView('settings');
   } else {
@@ -1102,17 +1697,19 @@ function handleRouting() {
 // ── 8. Global Event Delegation ───────────────────────────────
 
 document.addEventListener('click', (e) => {
-  // Timeline Load More
+  // Timeline manual trigger load button fallback
   const timelineLoadMore = e.target.closest('#timeline-load-more');
-  if (timelineLoadMore) {
+  if (timelineLoadMore && !timelineLoadMore.disabled) {
+    timelineLoadMore.disabled = true;
     state.timelineOffset += state.timelineLimit;
     loadTimelineEvents();
     return;
   }
   
-  // Search Load More
+  // Search manual trigger load button fallback
   const searchLoadMore = e.target.closest('#search-load-more');
-  if (searchLoadMore) {
+  if (searchLoadMore && !searchLoadMore.disabled) {
+    searchLoadMore.disabled = true;
     state.searchOffset += state.searchLimit;
     executeSearch();
     return;
@@ -1129,7 +1726,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Start connection checker cycle (15s interval)
   setInterval(checkConnection, 15000);
   
-  // UX: If there's no configuration token saved, guide them directly to Settings
   if (!state.token && !window.location.hash) {
     window.location.hash = '#settings';
   } else {

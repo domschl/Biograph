@@ -266,14 +266,11 @@ bio backup
 
 ---
 
-```toml
-[tls]
-enabled  = true
-certfile = "/path/to/cert.pem"
-keyfile  = "/path/to/key.pem"
-```
+## TLS & HTTPS Configuration
 
-Sensors must be configured to trust your self-signed CA.
+To secure communication between your sensors and the backend over local networks, you can enable HTTPS. 
+
+Refer to the detailed **[TLS & HTTPS Setup Guide](docs/TLS.md)** for step-by-step instructions on generating certificates and configuring root CA trust on your devices.
 
 ---
 
@@ -284,4 +281,4 @@ Sensors must be configured to trust your self-signed CA.
 - [x] **Phase 3** — Web client v1 (Timeline, Search, Settings)
 - [x] **Phase 4** — Chrome/Chromium browser extension
 - [x] **Phase 5** — Kindle sensor + export/import
-- [ ] Phase 6 — Web client v2 (Stats, Tag Manager, virtual scroll)
+- [x] **Phase 6** — Web client v2 (Stats, Tag Manager, virtual scroll)
