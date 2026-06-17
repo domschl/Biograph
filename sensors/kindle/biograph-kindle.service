@@ -1,0 +1,10 @@
+[Unit]
+Description=Biograph Kindle clippings auto-import
+Documentation=https://codeberg.org/domschl/biograph
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/bio kindle /run/media/%u/Kindle
+Environment=PYTHONUNBUFFERED=1

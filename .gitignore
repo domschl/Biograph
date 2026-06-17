@@ -1,0 +1,33 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environments
+.venv/
+venv/
+env/
+.env
+
+# Builds & Distribution
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Databases & Backups
+*.db
+*.db-journal
+*.db-wal
+biograph_backup_*.db
+biograph_backup_*.ndjson
+
+# Local configurations & secrets
+config.toml
+
+# OS Files
+.DS_Store
+Thumbs.db

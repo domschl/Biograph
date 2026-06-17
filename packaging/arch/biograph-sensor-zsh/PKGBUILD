@@ -1,0 +1,31 @@
+# Maintainer: Dominik Schloesser <domschl@codeberg.org>
+pkgname=biograph-sensor-zsh
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Biograph zsh history sensor — watches ~/.zsh_history and sends events"
+arch=('any')
+url="https://codeberg.org/domschl/biograph"
+license=('MIT')
+depends=('python' 'python-watchdog' 'python-httpx')
+makedepends=('python-build' 'python-installer' 'python-hatchling' 'python-wheel' 'git')
+source=("git+https://codeberg.org/domschl/biograph.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "${srcdir}/biograph/sensors/zsh"
+  grep -m 1 "^version" pyproject.toml | cut -d '"' -f 2
+}
+
+build() {
+  cd "${srcdir}/biograph/sensors/zsh"
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd "${srcdir}/biograph/sensors/zsh"
+  python -m installer --destdir="${pkgdir}" dist/*.whl
+
+  # Customise the systemd user service to point to the system-wide executable rather than local path
+  sed -i 's|%h/.local/bin/biograph-sensor-zsh|/usr/bin/biograph-sensor-zsh|g' biograph-zsh.service
+  install -Dm644 biograph-zsh.service "${pkgdir}/usr/lib/systemd/user/biograph-zsh.service"
+}

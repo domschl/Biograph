@@ -1,0 +1,265 @@
+"""Tests for the /events endpoints."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from httpx import AsyncClient
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _event_payload(**overrides: object) -> dict:
+    base: dict = {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "ev_type": "note",
+        "content": {"text": "Hello, world!"},
+        "tags": [],
+    }
+    base.update(overrides)
+    return base
+
+
+async def _create(client: AsyncClient, **kwargs: object) -> dict:
+    r = await client.post("/events/", json=_event_payload(**kwargs))
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_missing_token_is_rejected(client: AsyncClient) -> None:
+    # Explicitly unset the default Authorization header
+    r = await client.get("/events/", headers={"Authorization": ""})
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_wrong_token_is_rejected(client: AsyncClient) -> None:
+    r = await client.get("/events/", headers={"Authorization": "Bearer wrong"})
+    assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Create — POST /events/
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_event_returns_201(client: AsyncClient) -> None:
+    r = await client.post("/events/", json=_event_payload())
+    assert r.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_create_event_fields(client: AsyncClient) -> None:
+    payload = _event_payload(
+        ev_type="shell-cmd",
+        source_host="myhost",
+        source_app="zsh",
+        content={"cmd": "ls -la", "exit_code": 0, "cwd": "/home/user"},
+        tags=["dev", "terminal"],
+        summary="listed files",
+    )
+    data = (await client.post("/events/", json=payload)).json()
+
+    assert data["ev_type"] == "shell-cmd"
+    assert data["source_host"] == "myhost"
+    assert data["source_app"] == "zsh"
+    assert data["content"] == {"cmd": "ls -la", "exit_code": 0, "cwd": "/home/user"}
+    assert data["tags"] == ["dev", "terminal"]
+    assert data["summary"] == "listed files"
+    assert data["deleted_at"] is None
+    assert data["id"] is not None
+    assert data["received_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Batch — POST /events/batch
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_batch_create(client: AsyncClient) -> None:
+    payloads = [_event_payload(ev_type="note", content={"text": f"note {i}"}) for i in range(5)]
+    r = await client.post("/events/batch", json=payloads)
+    assert r.status_code == 201
+    assert len(r.json()) == 5
+
+
+@pytest.mark.asyncio
+async def test_batch_empty(client: AsyncClient) -> None:
+    r = await client.post("/events/batch", json=[])
+    assert r.status_code == 201
+    assert r.json() == []
+
+
+# ---------------------------------------------------------------------------
+# List — GET /events/
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_events_empty(client: AsyncClient) -> None:
+    r = await client.get("/events/")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 0
+    assert data["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_list_events_returns_all(client: AsyncClient) -> None:
+    for _ in range(3):
+        await _create(client)
+    data = (await client.get("/events/")).json()
+    assert data["total"] == 3
+    assert len(data["items"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_list_events_pagination(client: AsyncClient) -> None:
+    for _ in range(5):
+        await _create(client)
+
+    page1 = (await client.get("/events/", params={"limit": 2, "offset": 0})).json()
+    page2 = (await client.get("/events/", params={"limit": 2, "offset": 2})).json()
+
+    assert len(page1["items"]) == 2
+    assert len(page2["items"]) == 2
+    assert page1["total"] == 5
+    # IDs must not overlap
+    ids1 = {e["id"] for e in page1["items"]}
+    ids2 = {e["id"] for e in page2["items"]}
+    assert ids1.isdisjoint(ids2)
+
+
+@pytest.mark.asyncio
+async def test_list_filter_by_ev_type(client: AsyncClient) -> None:
+    await _create(client, ev_type="note")
+    await _create(client, ev_type="shell-cmd")
+    await _create(client, ev_type="note")
+
+    data = (await client.get("/events/", params={"ev_type": "note"})).json()
+    assert data["total"] == 2
+    assert all(e["ev_type"] == "note" for e in data["items"])
+
+
+@pytest.mark.asyncio
+async def test_list_filter_by_source(client: AsyncClient) -> None:
+    await _create(client, source_host="alpha", source_app="zsh")
+    await _create(client, source_host="beta", source_app="chrome")
+
+    data = (await client.get("/events/", params={"source_host": "alpha"})).json()
+    assert data["total"] == 1
+    assert data["items"][0]["source_host"] == "alpha"
+
+
+@pytest.mark.asyncio
+async def test_list_filter_by_date_range(client: AsyncClient) -> None:
+    now = datetime.now(UTC)
+    yesterday = now - timedelta(days=1)
+    tomorrow = now + timedelta(days=1)
+
+    await _create(client, timestamp=yesterday.isoformat())
+    await _create(client, timestamp=now.isoformat())
+    await _create(client, timestamp=tomorrow.isoformat())
+
+    data = (await client.get("/events/", params={"from": now.isoformat()})).json()
+    assert data["total"] == 2  # now and tomorrow
+
+
+@pytest.mark.asyncio
+async def test_list_search_by_q(client: AsyncClient) -> None:
+    await _create(client, content={"text": "went hiking today"})
+    await _create(client, content={"text": "grocery shopping"})
+
+    data = (await client.get("/events/", params={"q": "hiking"})).json()
+    assert data["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_list_filter_by_tags(client: AsyncClient) -> None:
+    await _create(client, tags=["health", "outdoor"])
+    await _create(client, tags=["work"])
+    await _create(client, tags=["health", "work"])
+
+    data = (await client.get("/events/", params={"tags": "health"})).json()
+    assert data["total"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Get — GET /events/{id}
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_event(client: AsyncClient) -> None:
+    created = await _create(client, summary="my note")
+    r = await client.get(f"/events/{created['id']}")
+    assert r.status_code == 200
+    assert r.json()["summary"] == "my note"
+
+
+@pytest.mark.asyncio
+async def test_get_nonexistent_event(client: AsyncClient) -> None:
+    r = await client.get("/events/99999")
+    assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Update — PATCH /events/{id}
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_patch_tags(client: AsyncClient) -> None:
+    created = await _create(client)
+    r = await client.patch(f"/events/{created['id']}", json={"tags": ["updated"]})
+    assert r.status_code == 200
+    assert r.json()["tags"] == ["updated"]
+
+
+@pytest.mark.asyncio
+async def test_patch_summary(client: AsyncClient) -> None:
+    created = await _create(client)
+    r = await client.patch(f"/events/{created['id']}", json={"summary": "new summary"})
+    assert r.status_code == 200
+    assert r.json()["summary"] == "new summary"
+
+
+# ---------------------------------------------------------------------------
+# Delete — DELETE /events/{id}
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_event(client: AsyncClient) -> None:
+    created = await _create(client)
+    r = await client.delete(f"/events/{created['id']}")
+    assert r.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_deleted_event_not_in_list(client: AsyncClient) -> None:
+    created = await _create(client)
+    await client.delete(f"/events/{created['id']}")
+
+    data = (await client.get("/events/")).json()
+    assert data["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_deleted_event_not_retrievable(client: AsyncClient) -> None:
+    created = await _create(client)
+    await client.delete(f"/events/{created['id']}")
+    r = await client.get(f"/events/{created['id']}")
+    assert r.status_code == 404

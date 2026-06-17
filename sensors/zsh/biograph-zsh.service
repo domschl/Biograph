@@ -1,0 +1,16 @@
+[Unit]
+Description=Biograph zsh history sensor
+Documentation=https://codeberg.org/yourname/biograph
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/biograph-sensor-zsh
+Restart=on-failure
+RestartSec=10s
+# Increase if you have very high shell activity
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

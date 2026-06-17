@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Biograph Web Sensor",
+  "version": "0.1.0",
+  "description": "Automatically journals your browser visits as web-visit events on your Biograph timeline.",
+  "permissions": [
+    "tabs",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "action": {}
+}

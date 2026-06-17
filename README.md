@@ -205,6 +205,67 @@ Automatically logs visited webpage URLs and titles to your Biograph timeline.
 
 ---
 
+## Kindle Clippings Sensor
+
+Automatically parses and journals books (`kindle-book` events) and highlights (`kindle-highlight` events) when your Amazon Kindle is connected over USB.
+
+### Manual Usage
+
+Import clippings manually by providing the mount path to your Kindle:
+
+```bash
+bio kindle /run/media/user/Kindle   # Linux
+# or
+bio kindle /Volumes/Kindle           # macOS
+```
+
+### USB Automount Service
+
+**Linux (systemd user service)**
+1. Copy the path and service units:
+   ```bash
+   cp sensors/kindle/biograph-kindle.path ~/.config/systemd/user/
+   cp sensors/kindle/biograph-kindle.service ~/.config/systemd/user/
+   ```
+2. Enable and start the path watcher:
+   ```bash
+   systemctl --user daemon-reload
+   systemctl --user enable --now biograph-kindle.path
+   ```
+   *The service will trigger automatically whenever your Kindle mounts at `/run/media/$USER/Kindle`.*
+
+**macOS (launchd user agent)**
+1. Copy the plist:
+   ```bash
+   cp sensors/kindle/biograph-kindle.plist ~/Library/LaunchAgents/io.biograph.sensor.kindle.plist
+   ```
+2. Load the agent:
+   ```bash
+   launchctl load -w ~/Library/LaunchAgents/io.biograph.sensor.kindle.plist
+   ```
+
+---
+
+## Import, Export, and Backup
+
+Manage database state, migrations, and backups directly from the command line:
+
+```bash
+# Export all events in NDJSON format
+bio export backup.ndjson
+
+# Export events in a specific time range
+bio export backup.ndjson --from 2026-01-01T00:00:00 --to 2026-06-30T23:59:59
+
+# Ingest an NDJSON dump
+bio import backup.ndjson
+
+# Create a timestamped backup copy of your database
+bio backup
+```
+
+---
+
 ```toml
 [tls]
 enabled  = true
@@ -222,5 +283,5 @@ Sensors must be configured to trust your self-signed CA.
 - [x] **Phase 2** — zsh sensor (EXTENDED_HISTORY parser, buffer, retry, systemd/launchd) + `bio log` / `bio search` CLI
 - [x] **Phase 3** — Web client v1 (Timeline, Search, Settings)
 - [x] **Phase 4** — Chrome/Chromium browser extension
-- [ ] Phase 5 — Kindle sensor + export/import
+- [x] **Phase 5** — Kindle sensor + export/import
 - [ ] Phase 6 — Web client v2 (Stats, Tag Manager, virtual scroll)

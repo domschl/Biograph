@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Biograph Web Sensor — Options</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="logo" aria-label="Biograph Logo">Biograph</div>
+      <h1>Web Sensor Settings</h1>
+      <p class="subtitle">Configure how this browser extension logs web visits to your Biograph timeline.</p>
+    </header>
+
+    <main class="card">
+      <form id="options-form">
+        <div class="field">
+          <label class="field-label" for="server-url">Server URL</label>
+          <input class="field-input" type="url" id="server-url" placeholder="http://127.0.0.1:8000" required>
+          <div class="field-hint">The base URL of your running Biograph backend server.</div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="token">Access Token</label>
+          <input class="field-input" type="password" id="token" placeholder="Enter your bearer token" required>
+          <div class="field-hint">The static bearer token configured in your server's <code>config.toml</code>.</div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="host-name">Device Name (Host)</label>
+          <input class="field-input" type="text" id="host-name" placeholder="laptop" value="browser">
+          <div class="field-hint">Used as the <code>source_host</code> value for events logged by this browser.</div>
+        </div>
+
+        <div class="actions-row">
+          <button type="submit" class="btn btn-primary" id="save-btn">Save Settings</button>
+          <button type="button" class="btn btn-secondary" id="test-btn">Test Connection</button>
+          <span class="status-badge" id="test-status" style="display: none;" aria-live="polite">Checking...</span>
+        </div>
+      </form>
+    </main>
+
+    <section class="card queue-card" id="queue-section" style="display: none;">
+      <h2>Offline Queue Status</h2>
+      <p class="subtitle">There are events stored locally that haven't been sent to your server yet.</p>
+      
+      <div class="queue-status-box">
+        <span class="queue-count-label">Pending Events:</span>
+        <strong id="queue-count" class="queue-count-value">0</strong>
+      </div>
+
+      <div class="actions-row">
+        <button type="button" class="btn btn-secondary" id="flush-btn">Try Flushing Now</button>
+        <button type="button" class="btn btn-danger-link" id="clear-btn">Clear Queue</button>
+      </div>
+    </section>
+    
+    <footer class="footer">
+      <p>Biograph Web Sensor v0.1.0 · Open source</p>
+    </footer>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

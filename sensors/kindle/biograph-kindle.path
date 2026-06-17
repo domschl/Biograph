@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch Kindle mount for My Clippings.txt
+Documentation=https://codeberg.org/domschl/biograph
+
+[Path]
+PathExists=/run/media/%u/Kindle/documents/My Clippings.txt
+PathExists=/run/media/%u/Kindle/My Clippings.txt
+
+[Install]
+WantedBy=default.target

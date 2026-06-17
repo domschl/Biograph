@@ -1,0 +1,13 @@
+# Biograph — example server configuration
+# Copy to config.toml and edit before starting the server.
+
+[server]
+host    = "127.0.0.1"   # bind address (use 0.0.0.0 to expose on the network)
+port    = 8000
+token   = "change-me"   # shared secret — change this!
+db_path = "biograph.db" # path to the SQLite database file
+
+[tls]
+enabled  = false
+certfile = ""            # path to TLS certificate (PEM)
+keyfile  = ""            # path to TLS private key (PEM)
