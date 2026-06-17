@@ -10,6 +10,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from fastapi.middleware.cors import CORSMiddleware
 from biograph.api.events import router as events_router
 from biograph.api.stats import router as stats_router
 from biograph.config import get_config
@@ -30,8 +31,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Enable CORS for cross-origin client and extension connections
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(events_router)
 app.include_router(stats_router)
+
 
 
 @app.get("/health", tags=["meta"])
