@@ -168,10 +168,13 @@ async function checkConnection() {
  */
 function renderEventCard(event) {
   const card = document.createElement('article');
-  card.className = 'event-card';
+  card.className = `event-card ev-card-${event.ev_type}`;
   card.setAttribute('data-id', event.id);
   if (event.isMergedZshGroup && event.commands) {
     const ids = event.commands.map(item => item.id).join(',');
+    card.setAttribute('data-merged-ids', ids);
+  } else if (event.isMergedWebGroup && event.visits) {
+    const ids = event.visits.map(item => item.id).join(',');
     card.setAttribute('data-merged-ids', ids);
   }
   
@@ -234,14 +237,46 @@ function renderEventCard(event) {
       `;
     }
   } else if (event.ev_type === 'web-visit') {
-    const title = c.title ? escapeHtml(c.title) : 'Web Visit';
-    const url = c.url ? escapeHtml(c.url) : '#';
-    contentHtml = `
-      <div class="ev-title">
-        <a href="${url}" target="_blank" rel="noopener noreferrer" style="color: var(--text-1); font-weight: 500; text-decoration: underline; text-underline-offset: 3px;">${title}</a>
-      </div>
-      <a href="${url}" target="_blank" rel="noopener noreferrer" class="ev-url">${url}</a>
-    `;
+    if (event.isMergedWebGroup) {
+      const visitItems = event.visits.map(item => {
+        const itemTime = new Date(item.timestamp);
+        const itemFormattedTime = itemTime.toLocaleTimeString(undefined, {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        });
+        const url = item.url ? escapeHtml(item.url) : '#';
+        const title = item.title ? escapeHtml(item.title) : 'Web Visit';
+        return `
+          <div class="merged-web-visit-item" style="margin-bottom: 8px;">
+            <div style="display: flex; align-items: baseline; flex-wrap: wrap;">
+              <span style="font-size: 11px; color: var(--text-3); margin-right: 8px; font-family: monospace; min-width: 50px;">${itemFormattedTime}</span>
+              <a href="${url}" target="_blank" rel="noopener noreferrer" style="color: var(--text-1); font-weight: 500; text-decoration: underline; text-underline-offset: 3px;">${title}</a>
+            </div>
+            <a href="${url}" target="_blank" rel="noopener noreferrer" class="ev-url" style="display: block; margin-left: 58px; margin-top: 1px; font-size: 11px; color: var(--text-3); font-family: monospace; word-break: break-all;">${url}</a>
+          </div>
+        `;
+      }).join('');
+      
+      contentHtml = `
+        <div class="ev-title" style="margin-bottom: 6px;">
+          Visits to <strong>${escapeHtml(event.websiteHost)}</strong>
+        </div>
+        <div class="merged-web-visits-list" style="border-left: 2px solid var(--border); padding-left: 10px; margin-top: 5px;">
+          ${visitItems}
+        </div>
+      `;
+    } else {
+      const title = c.title ? escapeHtml(c.title) : 'Web Visit';
+      const url = c.url ? escapeHtml(c.url) : '#';
+      contentHtml = `
+        <div class="ev-title">
+          <a href="${url}" target="_blank" rel="noopener noreferrer" style="color: var(--text-1); font-weight: 500; text-decoration: underline; text-underline-offset: 3px;">${title}</a>
+        </div>
+        <a href="${url}" target="_blank" rel="noopener noreferrer" class="ev-url">${url}</a>
+      `;
+    }
   } else if (event.ev_type === 'kindle-highlight' || event.ev_type === 'tolino-highlight' || event.ev_type === 'pocketbook-highlight') {
     contentHtml = `
       <div class="ev-quote">“${escapeHtml(c.highlight || '')}”</div>
@@ -351,65 +386,111 @@ function renderEventCard(event) {
 }
 
 /**
- * Merges consecutive zsh shell-cmd events if they belong to the same host
- * and occurred within 5 minutes of each other.
+ * Groups consecutive events if they belong to the same category:
+ * 1. consecutive zsh shell-cmd events on the same host (within 5 minutes)
+ * 2. consecutive web visits to the same website host (no timeout)
  */
 function preprocessEvents(events) {
   if (!events || events.length === 0) return [];
   
   const merged = [];
-  let currentGroup = null;
+  let currentZshGroup = null;
+  let currentWebGroup = null;
   
+  function getWebsiteHost(url) {
+    try {
+      const u = new URL(url);
+      return u.hostname.replace(/^www\./i, '');
+    } catch (e) {
+      return url || '';
+    }
+  }
+
   for (const event of events) {
     const isZshCmd = event.ev_type === 'shell-cmd' && event.source_app === 'zsh';
+    const isWebVisit = event.ev_type === 'web-visit';
+    
+    // Close Zsh group if we hit any non-zsh-command
+    if (!isZshCmd && currentZshGroup) {
+      merged.push(currentZshGroup);
+      currentZshGroup = null;
+    }
+    
+    // Close Web group if we hit any non-web-visit
+    if (!isWebVisit && currentWebGroup) {
+      merged.push(currentWebGroup);
+      currentWebGroup = null;
+    }
     
     if (isZshCmd) {
-      if (currentGroup) {
-        const timeDiffMs = Math.abs(new Date(event.timestamp) - new Date(currentGroup.timestamp));
-        const sameHost = event.source_host === currentGroup.source_host;
+      if (currentZshGroup) {
+        const timeDiffMs = Math.abs(new Date(event.timestamp) - new Date(currentZshGroup.timestamp));
+        const sameHost = event.source_host === currentZshGroup.source_host;
         
         if (sameHost && timeDiffMs <= 5 * 60 * 1000) {
-          // Merge this command into the current group
-          currentGroup.commands.push({
+          currentZshGroup.commands.push({
             cmd: event.content.cmd,
             cwd: event.content.cwd,
             timestamp: event.timestamp,
             id: event.id
           });
-          // Update group's tags to include any new tags
           if (event.tags) {
             for (const tag of event.tags) {
-              if (!currentGroup.tags.includes(tag)) {
-                currentGroup.tags.push(tag);
+              if (!currentZshGroup.tags.includes(tag)) {
+                currentZshGroup.tags.push(tag);
               }
             }
           }
-          continue;
         } else {
-          // Finish current group and start a new one
-          merged.push(currentGroup);
-          currentGroup = startNewGroup(event);
+          merged.push(currentZshGroup);
+          currentZshGroup = startNewZshGroup(event);
         }
       } else {
-        currentGroup = startNewGroup(event);
+        currentZshGroup = startNewZshGroup(event);
+      }
+    } else if (isWebVisit) {
+      const eventHost = getWebsiteHost(event.content.url || '');
+      if (currentWebGroup) {
+        const groupHost = currentWebGroup.websiteHost;
+        
+        if (eventHost === groupHost) {
+          currentWebGroup.visits.push({
+            url: event.content.url,
+            title: event.content.title,
+            browser: event.content.browser,
+            timestamp: event.timestamp,
+            id: event.id
+          });
+          if (event.tags) {
+            for (const tag of event.tags) {
+              if (!currentWebGroup.tags.includes(tag)) {
+                currentWebGroup.tags.push(tag);
+              }
+            }
+          }
+        } else {
+          merged.push(currentWebGroup);
+          currentWebGroup = startNewWebGroup(event, eventHost);
+        }
+      } else {
+        currentWebGroup = startNewWebGroup(event, eventHost);
       }
     } else {
-      if (currentGroup) {
-        merged.push(currentGroup);
-        currentGroup = null;
-      }
       merged.push({ ...event });
     }
   }
   
-  if (currentGroup) {
-    merged.push(currentGroup);
+  if (currentZshGroup) {
+    merged.push(currentZshGroup);
+  }
+  if (currentWebGroup) {
+    merged.push(currentWebGroup);
   }
   
   return merged;
 }
 
-function startNewGroup(event) {
+function startNewZshGroup(event) {
   return {
     ...event,
     tags: [...(event.tags || [])],
@@ -420,6 +501,22 @@ function startNewGroup(event) {
       id: event.id
     }],
     isMergedZshGroup: true
+  };
+}
+
+function startNewWebGroup(event, websiteHost) {
+  return {
+    ...event,
+    tags: [...(event.tags || [])],
+    visits: [{
+      url: event.content.url,
+      title: event.content.title,
+      browser: event.content.browser,
+      timestamp: event.timestamp,
+      id: event.id
+    }],
+    websiteHost: websiteHost,
+    isMergedWebGroup: true
   };
 }
 
@@ -680,23 +777,11 @@ function renderSearchView(container) {
       <label class="filter-chip ${isActive('web-visit')}">
         <input type="checkbox" value="web-visit" class="filter-type-checkbox" ${isChecked('web-visit')}> Web
       </label>
-      <label class="filter-chip ${isActive('kindle-highlight')}">
-        <input type="checkbox" value="kindle-highlight" class="filter-type-checkbox" ${isChecked('kindle-highlight')}> Highlight
+      <label class="filter-chip ${isActive('highlight')}">
+        <input type="checkbox" value="highlight" class="filter-type-checkbox" ${isChecked('highlight')}> Highlight
       </label>
-      <label class="filter-chip ${isActive('kindle-book')}">
-        <input type="checkbox" value="kindle-book" class="filter-type-checkbox" ${isChecked('kindle-book')}> Book
-      </label>
-      <label class="filter-chip ${isActive('tolino-highlight')}">
-        <input type="checkbox" value="tolino-highlight" class="filter-type-checkbox" ${isChecked('tolino-highlight')}> Tolino Quote
-      </label>
-      <label class="filter-chip ${isActive('tolino-book')}">
-        <input type="checkbox" value="tolino-book" class="filter-type-checkbox" ${isChecked('tolino-book')}> Tolino Book
-      </label>
-      <label class="filter-chip ${isActive('pocketbook-highlight')}">
-        <input type="checkbox" value="pocketbook-highlight" class="filter-type-checkbox" ${isChecked('pocketbook-highlight')}> PB Quote
-      </label>
-      <label class="filter-chip ${isActive('pocketbook-book')}">
-        <input type="checkbox" value="pocketbook-book" class="filter-type-checkbox" ${isChecked('pocketbook-book')}> PB Book
+      <label class="filter-chip ${isActive('book')}">
+        <input type="checkbox" value="book" class="filter-type-checkbox" ${isChecked('book')}> Book
       </label>
       <label class="filter-chip ${isActive('kodi-movie')}">
         <input type="checkbox" value="kodi-movie" class="filter-type-checkbox" ${isChecked('kodi-movie')}> Movie
@@ -816,7 +901,17 @@ async function executeSearch() {
     
     if (state.searchTypes && state.searchTypes.length > 0) {
       for (const t of state.searchTypes) {
-        params.append('ev_type', t);
+        if (t === 'highlight') {
+          params.append('ev_type', 'kindle-highlight');
+          params.append('ev_type', 'tolino-highlight');
+          params.append('ev_type', 'pocketbook-highlight');
+        } else if (t === 'book') {
+          params.append('ev_type', 'kindle-book');
+          params.append('ev_type', 'tolino-book');
+          params.append('ev_type', 'pocketbook-book');
+        } else {
+          params.append('ev_type', t);
+        }
       }
     }
     
@@ -1693,7 +1788,7 @@ async function deleteEvent(id, card) {
   const ids = mergedIdsStr ? mergedIdsStr.split(',').map(Number) : [id];
   
   const confirmMsg = ids.length > 1
-    ? `Are you sure you want to delete this block of ${ids.length} commands? This action cannot be undone.`
+    ? `Are you sure you want to delete this block of ${ids.length} grouped items? This action cannot be undone.`
     : 'Are you sure you want to delete this event? This action cannot be undone.';
     
   if (!confirm(confirmMsg)) {
