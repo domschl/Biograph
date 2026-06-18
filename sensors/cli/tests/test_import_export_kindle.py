@@ -175,3 +175,97 @@ def test_cli_tolino(tmp_path: Path, monkeypatch):
     assert "Successfully imported 2 events" in result.output
     assert route.called
 
+
+@respx.mock
+def test_cli_pocketbook(tmp_path: Path, monkeypatch):
+    # Mock storage state path so we don't write to ~/.local/share/
+    monkeypatch.setattr("biograph_cli.bio._load_pocketbook_state", lambda url: {"sent_bookmark_ids": [], "sent_book_progress": {}})
+    monkeypatch.setattr("biograph_cli.bio._save_pocketbook_state", lambda url, s: None)
+    
+    # Create fake mount structure
+    mount = tmp_path / "pocketbook_mount"
+    config_dir = mount / "system" / "config"
+    config_dir.mkdir(parents=True)
+    db_file = config_dir / "books.db"
+    
+    import sqlite3
+    conn = sqlite3.connect(str(db_file))
+    cursor = conn.cursor()
+    
+    # Create tables
+    cursor.execute("""
+        CREATE TABLE TypeNames (
+            OID INTEGER PRIMARY KEY,
+            TypeName TEXT,
+            Opts INTEGER
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE TagNames (
+            OID INTEGER PRIMARY KEY,
+            TagName TEXT,
+            Opts INTEGER
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE Items (
+            OID INTEGER PRIMARY KEY,
+            ParentID INTEGER,
+            TypeID INTEGER,
+            State INTEGER,
+            TimeAlt INTEGER,
+            HashUUID TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE Books (
+            OID INTEGER PRIMARY KEY,
+            Title TEXT,
+            Authors TEXT,
+            TimeAdd INTEGER
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE Tags (
+            OID INTEGER PRIMARY KEY,
+            ItemID INTEGER,
+            TagID INTEGER,
+            Val TEXT,
+            TimeEdt INTEGER
+        )
+    """)
+    
+    # Insert lookup types
+    cursor.execute("INSERT INTO TypeNames (OID, TypeName, Opts) VALUES (0, 'type.book', 0)")
+    cursor.execute("INSERT INTO TypeNames (OID, TypeName, Opts) VALUES (4, 'obj.book_mark', 0)")
+    cursor.execute("INSERT INTO TagNames (OID, TagName, Opts) VALUES (80, 'doc.read_progress', 0)")
+    cursor.execute("INSERT INTO TagNames (OID, TagName, Opts) VALUES (101, 'bm.book_mark', 0)")
+    cursor.execute("INSERT INTO TagNames (OID, TagName, Opts) VALUES (102, 'bm.type', 0)")
+    cursor.execute("INSERT INTO TagNames (OID, TagName, Opts) VALUES (104, 'bm.quotation', 0)")
+    
+    # Insert a book
+    cursor.execute("INSERT INTO Items (OID, ParentID, TypeID, State, TimeAlt, HashUUID) VALUES (2, NULL, 0, 0, 1700000000, 'uuid-book-2')")
+    cursor.execute("INSERT INTO Books (OID, Title, Authors, TimeAdd) VALUES (2, 'The Day After Roswell', 'Philip Corso', 1700000000)")
+    # Insert progress
+    cursor.execute("INSERT INTO Tags (ItemID, TagID, Val, TimeEdt) VALUES (2, 80, '0.5', 1700001000)")
+    
+    # Insert a bookmark/highlight item
+    cursor.execute("INSERT INTO Items (OID, ParentID, TypeID, State, TimeAlt, HashUUID) VALUES (11, 2, 4, 0, 1700002000, 'uuid-bm-11')")
+    # Tags for bookmark item
+    cursor.execute("INSERT INTO Tags (ItemID, TagID, Val, TimeEdt) VALUES (11, 102, 'highlight', 1700002000)")
+    cursor.execute("INSERT INTO Tags (ItemID, TagID, Val, TimeEdt) VALUES (11, 101, '{\"created\": 1700002000, \"anchor\": \"epubcfi(1)\"}', 1700002000)")
+    cursor.execute("INSERT INTO Tags (ItemID, TagID, Val, TimeEdt) VALUES (11, 104, '{\"text\": \"Highlighted quotation\", \"updated\": \"2023-11-14T20:00:00Z\"}', 1700002000)")
+    
+    conn.commit()
+    conn.close()
+    
+    route = respx.post(f"{FAKE_URL}/events/batch").mock(
+        return_value=httpx.Response(201, json=[{"id": 1}, {"id": 2}])
+    )
+    
+    result = runner.invoke(app, ["pocketbook", str(mount)])
+    assert result.exit_code == 0
+    assert "Successfully imported 2 events" in result.output
+    assert route.called
+
+

@@ -454,93 +454,126 @@ def _save_kindle_state(server_url: str, state: dict[str, Any]) -> None:
 
 @app.command()
 def kindle(
-    path: Path = typer.Argument(
-        ...,
-        help="Path to Kindle mountpoint directory or directly to the clippings file (e.g. My Clippings.txt).",
+    path: Path | None = typer.Argument(
+        None,
+        help="Path to Kindle mountpoint directory or directly to the clippings file (e.g. My Clippings.txt). If omitted, it will try to auto-detect.",
     ),
 ) -> None:
     """Import books and highlights from a mounted Kindle device or local clippings file."""
-    clippings_file = None
-    if path.is_file():
-        clippings_file = path
-    elif path.is_dir():
-        clippings_file = path / "documents" / "My Clippings.txt"
-        if not clippings_file.exists():
-            clippings_file = path / "My Clippings.txt"
+    paths_to_process = []
+    if path is not None:
+        paths_to_process.append(path)
     else:
-        err.print(f"[red]Error:[/red] '{path}' is neither a file nor a directory.")
-        raise typer.Exit(1)
-        
-    if not clippings_file or not clippings_file.exists():
-        err.print(f"[red]Error:[/red] Could not find clippings file at '{path}'.")
-        raise typer.Exit(1)
-        
-    try:
-        content = clippings_file.read_text(encoding="utf-8-sig")
-    except UnicodeDecodeError:
-        try:
-            content = clippings_file.read_text(encoding="latin-1")
-        except Exception as e:
-            err.print(f"[red]Error reading clippings file:[/red] {e}")
+        # Auto-detect Kindle mount points
+        detected = []
+        # Linux
+        run_media = Path("/run/media")
+        if run_media.exists():
+            for user_dir in run_media.iterdir():
+                if user_dir.is_dir():
+                    for mount_dir in user_dir.iterdir():
+                        if mount_dir.is_dir():
+                            if (mount_dir / "documents" / "My Clippings.txt").exists() or (mount_dir / "My Clippings.txt").exists():
+                                detected.append(mount_dir)
+        # macOS
+        volumes = Path("/Volumes")
+        if volumes.exists():
+            for mount_dir in volumes.iterdir():
+                if mount_dir.is_dir():
+                    if (mount_dir / "documents" / "My Clippings.txt").exists() or (mount_dir / "My Clippings.txt").exists():
+                        detected.append(mount_dir)
+
+        if not detected:
+            err.print(
+                "[red]Error:[/red] No mount point specified and could not auto-detect any Kindle."
+            )
+            err.print("Please specify the path: [bold]bio kindle <path>[/bold]")
             raise typer.Exit(1)
-            
-    items = parse_clippings(content)
-    if not items:
-        console.print("[yellow]No valid clippings found in the file.[/yellow]")
-        return
-        
+        paths_to_process.extend(detected)
+
     config = _load_config()
     server_url = _server_url(config)
     state = _load_kindle_state(server_url)
     sent_hashes = set(state.get("sent_hashes", []))
     sent_books = set(state.get("sent_books", []))
-    
+
     events_to_send = []
     new_books_to_track = []
     new_hashes_to_track = []
-    
-    for item in items:
-        book_key = item["book_title"]
-        if book_key not in sent_books and book_key not in new_books_to_track:
-            new_books_to_track.append(book_key)
-            events_to_send.append({
-                "timestamp": item["timestamp"],
-                "ev_type": "kindle-book",
-                "source_host": "kindle",
-                "source_app": "kindle-clippings",
-                "content": {
-                    "book_title": item["book_title"],
-                    "author": item["author"],
-                    "asin": None,
-                    "last_read": item["timestamp"]
-                },
-                "tags": ["reading", "kindle"],
-            })
+
+    for current_path in paths_to_process:
+        console.print(f"[dim]Processing Kindle mount point: {current_path}[/dim]")
+        
+        clippings_file = None
+        if current_path.is_file():
+            clippings_file = current_path
+        elif current_path.is_dir():
+            clippings_file = current_path / "documents" / "My Clippings.txt"
+            if not clippings_file.exists():
+                clippings_file = current_path / "My Clippings.txt"
+        else:
+            err.print(f"[yellow]Warning:[/yellow] '{current_path}' is neither a file nor a directory. Skipping.")
+            continue
             
-        if item["is_highlight"]:
-            clipping_hash = calculate_clipping_hash(
-                item["book_title"],
-                item["author"],
-                item["highlight"],
-                item["location"]
-            )
+        if not clippings_file or not clippings_file.exists():
+            err.print(f"[yellow]Warning:[/yellow] Could not find clippings file at '{current_path}'. Skipping.")
+            continue
             
-            if clipping_hash not in sent_hashes and clipping_hash not in new_hashes_to_track:
-                new_hashes_to_track.append(clipping_hash)
+        try:
+            content = clippings_file.read_text(encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            try:
+                content = clippings_file.read_text(encoding="latin-1")
+            except Exception as e:
+                err.print(f"[red]Error reading clippings file from {clippings_file}:[/red] {e}")
+                continue
+
+        items = parse_clippings(content)
+        if not items:
+            continue
+
+        for item in items:
+            book_key = item["book_title"]
+            if book_key not in sent_books and book_key not in new_books_to_track:
+                new_books_to_track.append(book_key)
                 events_to_send.append({
                     "timestamp": item["timestamp"],
-                    "ev_type": "kindle-highlight",
+                    "ev_type": "kindle-book",
                     "source_host": "kindle",
                     "source_app": "kindle-clippings",
                     "content": {
                         "book_title": item["book_title"],
                         "author": item["author"],
-                        "highlight": item["highlight"],
-                        "location": item["location"]
+                        "asin": None,
+                        "last_read": item["timestamp"]
                     },
-                    "tags": ["quotes", "kindle"],
+                    "tags": ["reading", "kindle"],
                 })
                 
+            if item["is_highlight"]:
+                clipping_hash = calculate_clipping_hash(
+                    item["book_title"],
+                    item["author"],
+                    item["highlight"],
+                    item["location"]
+                )
+                
+                if clipping_hash not in sent_hashes and clipping_hash not in new_hashes_to_track:
+                    new_hashes_to_track.append(clipping_hash)
+                    events_to_send.append({
+                        "timestamp": item["timestamp"],
+                        "ev_type": "kindle-highlight",
+                        "source_host": "kindle",
+                        "source_app": "kindle-clippings",
+                        "content": {
+                            "book_title": item["book_title"],
+                            "author": item["author"],
+                            "highlight": item["highlight"],
+                            "location": item["location"]
+                        },
+                        "tags": ["quotes", "kindle"],
+                    })
+
     if not events_to_send:
         console.print("[green]No new books or highlights to import.[/green]")
         return
@@ -596,62 +629,48 @@ def _save_tolino_state(server_url: str, state: dict[str, Any]) -> None:
         json.dump(state, f, indent=2)
 
 
-# ---------------------------------------------------------------------------
-# Tolino import command
-# ---------------------------------------------------------------------------
-
-
 @app.command()
 def tolino(
-    path: Path = typer.Argument(
+    path: Path | None = typer.Argument(
         None,
         help="Path to Tolino mountpoint directory or directly to KoboReader.sqlite database. If omitted, it will try to auto-detect the mount point in /run/media.",
     ),
 ) -> None:
     """Import books and highlights from a mounted Tolino/Kobo ereader."""
     import sqlite3
+    import tempfile
+    import shutil
 
-    if path is None:
-        detected = None
+    paths_to_process = []
+    if path is not None:
+        paths_to_process.append(path)
+    else:
+        # Auto-detect Tolino mount points
+        detected = []
+        # Linux
         run_media = Path("/run/media")
         if run_media.exists():
             for user_dir in run_media.iterdir():
                 if user_dir.is_dir():
-                    ereader_dir = user_dir / "eReader"
-                    if ereader_dir.exists():
-                        detected = ereader_dir
-                        break
-        if detected:
-            console.print(f"[dim]Auto-detected Tolino mount point at: {detected}[/dim]")
-            path = detected
-        else:
+                    for mount_dir in user_dir.iterdir():
+                        if mount_dir.is_dir():
+                            if (mount_dir / ".kobo" / "KoboReader.sqlite").exists() or (mount_dir / "KoboReader.sqlite").exists():
+                                detected.append(mount_dir)
+        # macOS
+        volumes = Path("/Volumes")
+        if volumes.exists():
+            for mount_dir in volumes.iterdir():
+                if mount_dir.is_dir():
+                    if (mount_dir / ".kobo" / "KoboReader.sqlite").exists() or (mount_dir / "KoboReader.sqlite").exists():
+                        detected.append(mount_dir)
+
+        if not detected:
             err.print(
                 "[red]Error:[/red] No mount point specified and could not auto-detect Tolino at '/run/media/*/eReader'."
             )
             err.print("Please specify the path: [bold]bio tolino <path>[/bold]")
             raise typer.Exit(1)
-
-    db_file = None
-    if path.is_file():
-        db_file = path
-    elif path.is_dir():
-        db_file = path / ".kobo" / "KoboReader.sqlite"
-    else:
-        err.print(f"[red]Error:[/red] '{path}' is neither a file nor a directory.")
-        raise typer.Exit(1)
-
-    if not db_file.exists():
-        err.print(f"[red]Error:[/red] Could not find SQLite database at '{db_file}'.")
-        raise typer.Exit(1)
-
-    temp_dir = tempfile.mkdtemp()
-    temp_db = Path(temp_dir) / "KoboReader.sqlite"
-    try:
-        shutil.copy2(db_file, temp_db)
-    except Exception as e:
-        err.print(f"[red]Error copying database file:[/red] {e}")
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        raise typer.Exit(1)
+        paths_to_process.extend(detected)
 
     config = _load_config()
     server_url = _server_url(config)
@@ -663,94 +682,119 @@ def tolino(
     new_bookmark_ids = []
     updated_book_progress = dict(sent_book_progress)
 
-    try:
-        conn = sqlite3.connect(str(temp_db))
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+    for current_path in paths_to_process:
+        console.print(f"[dim]Processing Tolino/Kobo mount point: {current_path}[/dim]")
+        
+        db_file = None
+        if current_path.is_file():
+            db_file = current_path
+        elif current_path.is_dir():
+            db_file = current_path / ".kobo" / "KoboReader.sqlite"
+            if not db_file.exists():
+                db_file = current_path / "KoboReader.sqlite"
+        else:
+            err.print(f"[yellow]Warning:[/yellow] '{current_path}' is neither a file nor a directory. Skipping.")
+            continue
 
-        # 1. Fetch books and progress
-        cursor.execute(
-            """
-            SELECT Title, Attribution, ContentID, ReadStatus, ___PercentRead, DateLastRead, DateCreated
-            FROM content
-            WHERE ContentType = '6' AND Title IS NOT NULL AND Title != ''
-            """
-        )
-        books = cursor.fetchall()
-        for book in books:
-            content_id = book["ContentID"]
-            title = book["Title"]
-            author = book["Attribution"] or "Unknown"
-            read_status = book["ReadStatus"]
-            percent_read = book["___PercentRead"]
-            last_read = book["DateLastRead"]
+        if not db_file.exists():
+            err.print(f"[yellow]Warning:[/yellow] Could not find SQLite database at '{db_file}'. Skipping.")
+            continue
 
-            if last_read and (read_status > 0 or (percent_read is not None and percent_read > 0)):
-                prev_last_read = sent_book_progress.get(content_id)
-                if not prev_last_read or last_read > prev_last_read:
-                    updated_book_progress[content_id] = last_read
+        temp_dir = tempfile.mkdtemp()
+        temp_db = Path(temp_dir) / "KoboReader.sqlite"
+        try:
+            shutil.copy2(db_file, temp_db)
+        except Exception as e:
+            err.print(f"[red]Error copying database file from {db_file}:[/red] {e}")
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            continue
+
+        try:
+            conn = sqlite3.connect(str(temp_db))
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            # 1. Fetch books and progress
+            cursor.execute(
+                """
+                SELECT Title, Attribution, ContentID, ReadStatus, ___PercentRead, DateLastRead, DateCreated
+                FROM content
+                WHERE ContentType = '6' AND Title IS NOT NULL AND Title != ''
+                """
+            )
+            books = cursor.fetchall()
+            for book in books:
+                content_id = book["ContentID"]
+                title = book["Title"]
+                author = book["Attribution"] or "Unknown"
+                read_status = book["ReadStatus"]
+                percent_read = book["___PercentRead"]
+                last_read = book["DateLastRead"]
+
+                if last_read and (read_status > 0 or (percent_read is not None and percent_read > 0)):
+                    prev_last_read = sent_book_progress.get(content_id)
+                    if not prev_last_read or last_read > prev_last_read:
+                        updated_book_progress[content_id] = last_read
+                        events_to_send.append({
+                            "timestamp": last_read,
+                            "ev_type": "tolino-book",
+                            "source_host": "tolino",
+                            "source_app": "tolino-db",
+                            "content": {
+                                "book_title": title,
+                                "author": author,
+                                "content_id": content_id,
+                                "read_status": read_status,
+                                "percent_read": percent_read,
+                                "last_read": last_read
+                            },
+                            "tags": ["reading", "tolino"],
+                        })
+
+            # 2. Fetch highlights/bookmarks
+            cursor.execute(
+                """
+                SELECT b.BookmarkID, b.VolumeID, b.Text, b.Annotation, b.DateCreated, b.StartContainerPath,
+                       c.Title, c.Attribution
+                FROM Bookmark b
+                LEFT JOIN content c ON b.VolumeID = c.ContentID
+                WHERE b.Text IS NOT NULL AND b.Text != '' AND b.Hidden = 0
+                """
+            )
+            bookmarks = cursor.fetchall()
+            for bm in bookmarks:
+                bookmark_id = bm["BookmarkID"]
+                text = bm["Text"]
+                annotation = bm["Annotation"]
+                date_created = bm["DateCreated"]
+                location = bm["StartContainerPath"]
+                book_title = bm["Title"] or "Unknown Book"
+                author = bm["Attribution"] or "Unknown"
+
+                if bookmark_id not in sent_bookmark_ids:
+                    new_bookmark_ids.append(bookmark_id)
+                    timestamp = date_created if date_created else datetime.now(UTC).isoformat()
                     events_to_send.append({
-                        "timestamp": last_read,
-                        "ev_type": "tolino-book",
+                        "timestamp": timestamp,
+                        "ev_type": "tolino-highlight",
                         "source_host": "tolino",
                         "source_app": "tolino-db",
                         "content": {
-                            "book_title": title,
+                            "book_title": book_title,
                             "author": author,
-                            "content_id": content_id,
-                            "read_status": read_status,
-                            "percent_read": percent_read,
-                            "last_read": last_read
+                            "highlight": text,
+                            "annotation": annotation,
+                            "bookmark_id": bookmark_id,
+                            "location": location
                         },
-                        "tags": ["reading", "tolino"],
+                        "tags": ["quotes", "tolino"],
                     })
 
-        # 2. Fetch highlights/bookmarks
-        cursor.execute(
-            """
-            SELECT b.BookmarkID, b.VolumeID, b.Text, b.Annotation, b.DateCreated, b.StartContainerPath,
-                   c.Title, c.Attribution
-            FROM Bookmark b
-            LEFT JOIN content c ON b.VolumeID = c.ContentID
-            WHERE b.Text IS NOT NULL AND b.Text != '' AND b.Hidden = 0
-            """
-        )
-        bookmarks = cursor.fetchall()
-        for bm in bookmarks:
-            bookmark_id = bm["BookmarkID"]
-            text = bm["Text"]
-            annotation = bm["Annotation"]
-            date_created = bm["DateCreated"]
-            location = bm["StartContainerPath"]
-            book_title = bm["Title"] or "Unknown Book"
-            author = bm["Attribution"] or "Unknown"
-
-            if bookmark_id not in sent_bookmark_ids:
-                new_bookmark_ids.append(bookmark_id)
-                timestamp = date_created if date_created else datetime.now(UTC).isoformat()
-                events_to_send.append({
-                    "timestamp": timestamp,
-                    "ev_type": "tolino-highlight",
-                    "source_host": "tolino",
-                    "source_app": "tolino-db",
-                    "content": {
-                        "book_title": book_title,
-                        "author": author,
-                        "highlight": text,
-                        "annotation": annotation,
-                        "bookmark_id": bookmark_id,
-                        "location": location
-                    },
-                    "tags": ["quotes", "tolino"],
-                })
-
-        conn.close()
-    except Exception as e:
-        err.print(f"[red]Database error:[/red] {e}")
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        raise typer.Exit(1)
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+            conn.close()
+        except Exception as e:
+            err.print(f"[red]Database error processing {db_file}:[/red] {e}")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     if not events_to_send:
         console.print("[green]No new books read or highlights to import.[/green]")
@@ -776,6 +820,274 @@ def tolino(
 
     sent_bookmark_ids.update(new_bookmark_ids)
     _save_tolino_state(server_url, {
+        "sent_bookmark_ids": list(sent_bookmark_ids),
+        "sent_book_progress": updated_book_progress
+    })
+
+    console.print(f"[green]✓[/green] Successfully imported {len(events_to_send)} events.")
+
+
+def _load_pocketbook_state(server_url: str) -> dict[str, Any]:
+    state_file = _get_state_path("pocketbook", server_url)
+    if state_file.exists():
+        try:
+            with open(state_file, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"sent_bookmark_ids": [], "sent_book_progress": {}}
+
+
+def _save_pocketbook_state(server_url: str, state: dict[str, Any]) -> None:
+    state_file = _get_state_path("pocketbook", server_url)
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(state_file, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+@app.command()
+def pocketbook(
+    path: Path | None = typer.Argument(
+        None,
+        help="Path to PocketBook mountpoint directory or directly to books.db database. If omitted, it will try to auto-detect.",
+    ),
+) -> None:
+    """Import books and highlights from a mounted PocketBook eReader."""
+    import sqlite3
+    import tempfile
+    import shutil
+
+    paths_to_process = []
+    if path is not None:
+        paths_to_process.append(path)
+    else:
+        # Auto-detect PocketBook mount points
+        detected = []
+        # Linux
+        run_media = Path("/run/media")
+        if run_media.exists():
+            for user_dir in run_media.iterdir():
+                if user_dir.is_dir():
+                    for mount_dir in user_dir.iterdir():
+                        if mount_dir.is_dir() and mount_dir.name.upper().startswith("PB"):
+                            if (mount_dir / "system" / "config" / "books.db").exists():
+                                detected.append(mount_dir)
+        # macOS
+        volumes = Path("/Volumes")
+        if volumes.exists():
+            for mount_dir in volumes.iterdir():
+                if mount_dir.is_dir() and mount_dir.name.upper().startswith("PB"):
+                    if (mount_dir / "system" / "config" / "books.db").exists():
+                        detected.append(mount_dir)
+
+        if not detected:
+            err.print(
+                "[red]Error:[/red] No mount point specified and could not auto-detect any PocketBook eReader at '/run/media/*/PB*'."
+            )
+            err.print("Please specify the path: [bold]bio pocketbook <path>[/bold]")
+            raise typer.Exit(1)
+        paths_to_process.extend(detected)
+
+    config = _load_config()
+    server_url = _server_url(config)
+    state = _load_pocketbook_state(server_url)
+    sent_bookmark_ids = set(state.get("sent_bookmark_ids", []))
+    sent_book_progress = state.get("sent_book_progress", {})
+
+    events_to_send = []
+    new_bookmark_ids = []
+    updated_book_progress = dict(sent_book_progress)
+
+    for current_path in paths_to_process:
+        console.print(f"[dim]Processing PocketBook mount point: {current_path}[/dim]")
+        
+        db_file = None
+        if current_path.is_file():
+            db_file = current_path
+        elif current_path.is_dir():
+            db_file = current_path / "system" / "config" / "books.db"
+        else:
+            err.print(f"[yellow]Warning:[/yellow] '{current_path}' is neither a file nor a directory. Skipping.")
+            continue
+
+        if not db_file.exists():
+            err.print(f"[yellow]Warning:[/yellow] Could not find SQLite database at '{db_file}'. Skipping.")
+            continue
+
+        temp_dir = tempfile.mkdtemp()
+        temp_db = Path(temp_dir) / "books.db"
+        try:
+            shutil.copy2(db_file, temp_db)
+        except Exception as e:
+            err.print(f"[red]Error copying database file from {db_file}:[/red] {e}")
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            continue
+
+        try:
+            conn = sqlite3.connect(str(temp_db))
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            # 1. Fetch books progress
+            cursor.execute(
+                """
+                SELECT b.Title, b.Authors, b.OID as BookOID, t_prog.Val as ReadProgress, t_prog.TimeEdt as LastReadTime
+                FROM Books b
+                JOIN Tags t_prog ON b.OID = t_prog.ItemID AND t_prog.TagID = 80
+                WHERE b.Title IS NOT NULL AND b.Title != ''
+                """
+            )
+            books = cursor.fetchall()
+            for book in books:
+                book_oid = str(book["BookOID"])
+                title = book["Title"]
+                author = book["Authors"] or "Unknown"
+                
+                try:
+                    progress_val = float(book["ReadProgress"])
+                    percent_read = int(round(progress_val * 100))
+                    percent_read = max(0, min(100, percent_read))
+                except (ValueError, TypeError):
+                    percent_read = 0
+                
+                last_read_time = book["LastReadTime"]
+
+                if last_read_time > 0 and percent_read > 0:
+                    prev_last_read = sent_book_progress.get(book_oid)
+                    if not prev_last_read or last_read_time > prev_last_read:
+                        updated_book_progress[book_oid] = last_read_time
+                        
+                        timestamp = datetime.fromtimestamp(last_read_time, UTC).isoformat()
+                        events_to_send.append({
+                            "timestamp": timestamp,
+                            "ev_type": "pocketbook-book",
+                            "source_host": "pocketbook",
+                            "source_app": "pocketbook-db",
+                            "content": {
+                                "book_title": title,
+                                "author": author,
+                                "content_id": book_oid,
+                                "percent_read": percent_read,
+                                "last_read": timestamp
+                            },
+                            "tags": ["reading", "pocketbook"],
+                        })
+
+            # 2. Fetch highlights/bookmarks
+            cursor.execute(
+                """
+                SELECT 
+                    b.Title, 
+                    b.Authors, 
+                    i.OID as BookmarkOID, 
+                    i.ParentID as BookOID,
+                    t_type.Val as BookmarkType,
+                    t_quote.Val as BookmarkQuotation,
+                    t_note.Val as BookmarkNote,
+                    t_bm.Val as BookmarkMark
+                FROM Items i
+                JOIN Books b ON i.ParentID = b.OID
+                LEFT JOIN Tags t_type ON i.OID = t_type.ItemID AND t_type.TagID = 102
+                LEFT JOIN Tags t_quote ON i.OID = t_quote.ItemID AND t_quote.TagID = 104
+                LEFT JOIN Tags t_note ON i.OID = t_note.ItemID AND t_note.TagID = 105
+                LEFT JOIN Tags t_bm ON i.OID = t_bm.ItemID AND t_bm.TagID = 101
+                WHERE i.TypeID = 4
+                """
+            )
+            bookmarks = cursor.fetchall()
+            for bm in bookmarks:
+                bookmark_id = str(bm["BookmarkOID"])
+                book_title = bm["Title"] or "Unknown Book"
+                author = bm["Authors"] or "Unknown"
+                
+                # Extract quotation text
+                quote_text = ""
+                quote_updated_str = None
+                if bm["BookmarkQuotation"]:
+                    try:
+                        quote_data = json.loads(bm["BookmarkQuotation"])
+                        quote_text = quote_data.get("text", "")
+                        quote_updated_str = quote_data.get("updated")
+                    except Exception:
+                        pass
+                
+                # Extract note (annotation)
+                note_text = None
+                if bm["BookmarkNote"]:
+                    try:
+                        note_data = json.loads(bm["BookmarkNote"])
+                        note_text = note_data.get("text")
+                    except Exception:
+                        pass
+
+                # Extract location and timestamp from bookmark mark (created/updated)
+                location = None
+                created_timestamp = None
+                if bm["BookmarkMark"]:
+                    try:
+                        mark_data = json.loads(bm["BookmarkMark"])
+                        location = mark_data.get("anchor")
+                        created_timestamp = mark_data.get("created")
+                    except Exception:
+                        pass
+
+                if bookmark_id not in sent_bookmark_ids:
+                    new_bookmark_ids.append(bookmark_id)
+                    
+                    # Resolve timestamp
+                    if created_timestamp:
+                        timestamp = datetime.fromtimestamp(created_timestamp, UTC).isoformat()
+                    elif quote_updated_str:
+                        timestamp = quote_updated_str
+                    else:
+                        timestamp = datetime.now(UTC).isoformat()
+                        
+                    events_to_send.append({
+                        "timestamp": timestamp,
+                        "ev_type": "pocketbook-highlight",
+                        "source_host": "pocketbook",
+                        "source_app": "pocketbook-db",
+                        "content": {
+                            "book_title": book_title,
+                            "author": author,
+                            "highlight": quote_text or "[Bookmark]",
+                            "annotation": note_text,
+                            "bookmark_id": bookmark_id,
+                            "location": location
+                        },
+                        "tags": ["quotes", "pocketbook"],
+                    })
+
+            conn.close()
+        except Exception as e:
+            err.print(f"[red]Database error processing {db_file}:[/red] {e}")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    if not events_to_send:
+        console.print("[green]No new books read or highlights to import.[/green]")
+        return
+
+    books_count = sum(1 for e in events_to_send if e["ev_type"] == "pocketbook-book")
+    highlights_count = sum(1 for e in events_to_send if e["ev_type"] == "pocketbook-highlight")
+
+    console.print(
+        f"Found {len(events_to_send)} new events to send ({books_count} books progress updates, {highlights_count} highlights). Sending batch..."
+    )
+
+    with _http_client(config) as http:
+        try:
+            resp = http.post("/events/batch", json=events_to_send)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            err.print(f"[red]Server error {exc.response.status_code}:[/red] {exc.response.text}")
+            raise typer.Exit(1)
+        except httpx.RequestError as exc:
+            err.print(f"[red]Connection error:[/red] {exc}")
+            raise typer.Exit(1)
+
+    sent_bookmark_ids.update(new_bookmark_ids)
+    _save_pocketbook_state(server_url, {
         "sent_bookmark_ids": list(sent_bookmark_ids),
         "sent_book_progress": updated_book_progress
     })

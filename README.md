@@ -124,6 +124,8 @@ uv run pytest
 | `kindle-book` | `book_title: str`, `author: str`, `asin: str \| null`, `last_read: str \| null` |
 | `tolino-highlight` | `book_title: str`, `author: str`, `highlight: str`, `annotation: str \| null`, `bookmark_id: str`, `location: str \| null` |
 | `tolino-book` | `book_title: str`, `author: str`, `content_id: str`, `read_status: int`, `percent_read: int \| null`, `last_read: str` |
+| `pocketbook-highlight` | `book_title: str`, `author: str`, `highlight: str`, `annotation: str \| null`, `bookmark_id: str`, `location: str \| null` |
+| `pocketbook-book` | `book_title: str`, `author: str`, `content_id: str`, `percent_read: int`, `last_read: str` |
 | `kodi-movie` | `title: str`, `year: int \| null`, `imdb_id: str \| null`, `db_id: int \| null`, `file: str`, `duration_seconds: int`, `progress_percent: float`, `finished: bool` |
 | `photo` | `path: str`, `caption: str \| null`, `lat: float \| null`, `lon: float \| null` |
 
@@ -267,16 +269,18 @@ Automatically logs visited webpage URLs and titles to your Biograph timeline.
 
 ## Kindle Clippings Sensor
 
-Automatically parses and journals books (`kindle-book` events) and highlights (`kindle-highlight` events) when your Amazon Kindle is connected over USB.
+Automatically parses and journals books (`kindle-book` events) and highlights (`kindle-highlight` events) when your Amazon Kindle is connected over USB. Supports importing from multiple Kindle devices.
 
-### Manual Usage
+### Manual & Auto-detect Usage
 
-Import clippings manually by providing the mount path to your Kindle:
+Import clippings by providing the mount path to your Kindle, or omit the path to auto-detect and import from all connected Kindles:
 
 ```bash
-bio kindle /run/media/user/Kindle   # Linux
+bio kindle /run/media/user/Kindle   # Linux manual
 # or
-bio kindle /Volumes/Kindle           # macOS
+bio kindle /Volumes/Kindle           # macOS manual
+# or
+bio kindle                           # Auto-detect all connected devices
 ```
 
 ### USB Automount Service
@@ -308,27 +312,45 @@ bio kindle /Volumes/Kindle           # macOS
 
 ## Tolino eReader Sensor
 
-Integrated directly into the `bio` CLI, this sensor imports book progress (`tolino-book` events) and highlights (`tolino-highlight` events) from Tolino/Kobo eReader devices running 5.x firmware.
+Integrated directly into the `bio` CLI, this sensor imports book progress (`tolino-book` events) and highlights (`tolino-highlight` events) from Tolino/Kobo eReader devices running 5.x firmware. Supports importing from multiple Tolino devices.
 
-### Manual Usage
+### Manual & Auto-detect Usage
 
-Import book stats and highlights by mounting your Tolino eReader over USB and specifying the path:
+Import book stats and highlights by mounting your Tolino eReader over USB and specifying the path, or omit the path to auto-detect and import from all connected Tolino eReaders:
 
 ```bash
-bio tolino /run/media/user/eReader   # Linux
+bio tolino /run/media/user/eReader   # Linux manual
 # or
-bio tolino /Volumes/eReader          # macOS
-```
-
-If the path is omitted, the CLI will attempt to auto-detect the mount point in `/run/media/*/eReader` (Linux only).
-
-```bash
-bio tolino
+bio tolino /Volumes/eReader          # macOS manual
+# or
+bio tolino                           # Auto-detect all connected devices
 ```
 
 ### State Partitioning
 
 Sync state is stored locally inside `~/.local/share/biograph/tolino_state_<hash>.json`, where `<hash>` is derived from the server URL. This ensures your progress isn't missed or duplicated when switching between different backend targets (e.g., local development vs. remote server).
+
+---
+
+## PocketBook eReader Sensor
+
+Integrated directly into the `bio` CLI, this sensor imports book progress (`pocketbook-book` events) and highlights (`pocketbook-highlight` events) from PocketBook devices. Supports importing from multiple PocketBook devices.
+
+### Manual & Auto-detect Usage
+
+Import book progress and highlights by mounting your PocketBook eReader over USB (PC-Link mode) and specifying the path, or omit the path to auto-detect and import from all connected PocketBooks (looks for mount folders starting with `PB`, e.g., `/run/media/user/PB634`):
+
+```bash
+bio pocketbook /run/media/user/PB634 # Linux manual
+# or
+bio pocketbook /Volumes/PB634        # macOS manual
+# or
+bio pocketbook                       # Auto-detect all connected devices
+```
+
+### State Partitioning
+
+Sync state is stored locally inside `~/.local/share/biograph/pocketbook_state_<hash>.json`, where `<hash>` is derived from the server URL. This ensures your progress isn't missed or duplicated when switching between different backend targets (e.g., local development vs. remote server).
 
 ---
 
@@ -385,3 +407,4 @@ Refer to the detailed **[TLS & HTTPS Setup Guide](docs/TLS.md)** for step-by-ste
 - [x] **Phase 5** — Kindle sensor + export/import
 - [x] **Phase 6** — Web client v2 (Stats, Tag Manager, virtual scroll)
 - [x] **Phase 7** — Tolino eReader support & Kodi service logger
+- [x] **Phase 8** — PocketBook eReader support & multi-device imports

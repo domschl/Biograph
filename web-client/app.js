@@ -180,8 +180,8 @@ function renderEventCard(event) {
   if (event.ev_type === 'note') badgeIcon = '📝';
   else if (event.ev_type === 'shell-cmd') badgeIcon = '$';
   else if (event.ev_type === 'web-visit') badgeIcon = '🌐';
-  else if (event.ev_type === 'kindle-highlight' || event.ev_type === 'tolino-highlight') badgeIcon = '“';
-  else if (event.ev_type === 'kindle-book' || event.ev_type === 'tolino-book') badgeIcon = '📖';
+  else if (event.ev_type === 'kindle-highlight' || event.ev_type === 'tolino-highlight' || event.ev_type === 'pocketbook-highlight') badgeIcon = '“';
+  else if (event.ev_type === 'kindle-book' || event.ev_type === 'tolino-book' || event.ev_type === 'pocketbook-book') badgeIcon = '📖';
   else if (event.ev_type === 'kodi-movie') badgeIcon = '🎬';
   else if (event.ev_type === 'photo') badgeIcon = '📷';
   
@@ -242,7 +242,7 @@ function renderEventCard(event) {
       </div>
       <a href="${url}" target="_blank" rel="noopener noreferrer" class="ev-url">${url}</a>
     `;
-  } else if (event.ev_type === 'kindle-highlight' || event.ev_type === 'tolino-highlight') {
+  } else if (event.ev_type === 'kindle-highlight' || event.ev_type === 'tolino-highlight' || event.ev_type === 'pocketbook-highlight') {
     contentHtml = `
       <div class="ev-quote">“${escapeHtml(c.highlight || '')}”</div>
       ${c.annotation ? `<div class="ev-note" style="margin-top: 5px; font-style: italic; color: var(--text-2);">Note: ${escapeHtml(c.annotation)}</div>` : ''}
@@ -251,8 +251,8 @@ function renderEventCard(event) {
         ${c.location ? `· Location ${c.location}` : ''}
       </div>
     `;
-  } else if (event.ev_type === 'kindle-book' || event.ev_type === 'tolino-book') {
-    const isFinished = c.read_status === 2;
+  } else if (event.ev_type === 'kindle-book' || event.ev_type === 'tolino-book' || event.ev_type === 'pocketbook-book') {
+    const isFinished = c.read_status === 2 || c.percent_read === 100;
     const progressText = c.percent_read !== undefined && c.percent_read !== null ? `· Progress: ${c.percent_read}%` : '';
     const statusText = isFinished ? 'Finished book:' : 'Started or read book:';
     contentHtml = `
@@ -692,6 +692,12 @@ function renderSearchView(container) {
       <label class="filter-chip ${isActive('tolino-book')}">
         <input type="checkbox" value="tolino-book" class="filter-type-checkbox" ${isChecked('tolino-book')}> Tolino Book
       </label>
+      <label class="filter-chip ${isActive('pocketbook-highlight')}">
+        <input type="checkbox" value="pocketbook-highlight" class="filter-type-checkbox" ${isChecked('pocketbook-highlight')}> PB Quote
+      </label>
+      <label class="filter-chip ${isActive('pocketbook-book')}">
+        <input type="checkbox" value="pocketbook-book" class="filter-type-checkbox" ${isChecked('pocketbook-book')}> PB Book
+      </label>
       <label class="filter-chip ${isActive('kodi-movie')}">
         <input type="checkbox" value="kodi-movie" class="filter-type-checkbox" ${isChecked('kodi-movie')}> Movie
       </label>
@@ -1092,6 +1098,8 @@ async function renderStatsView(container) {
           'kindle-book': '#c084fc',
           'tolino-highlight': '#f59e0b',
           'tolino-book': '#a855f7',
+          'pocketbook-highlight': '#ec4899',
+          'pocketbook-book': '#f43f5e',
           'kodi-movie': '#06b6d4',
           'photo': '#f472b6',
           'default': '#8a9ab5'
@@ -1245,6 +1253,8 @@ function drawDonutChart(canvas, data) {
     'kindle-book': '#c084fc',
     'tolino-highlight': '#f59e0b',
     'tolino-book': '#a855f7',
+    'pocketbook-highlight': '#ec4899',
+    'pocketbook-book': '#f43f5e',
     'kodi-movie': '#06b6d4',
     'photo': '#f472b6',
     'default': '#8a9ab5'

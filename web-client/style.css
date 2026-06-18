@@ -42,6 +42,8 @@
   --ev-kindle-book:      #c084fc;
   --ev-tolino-highlight: #f59e0b;
   --ev-tolino-book:      #a855f7;
+  --ev-pocketbook-highlight: #ec4899;
+  --ev-pocketbook-book:      #f43f5e;
   --ev-kodi-movie:       #06b6d4;
   --ev-photo:            #f472b6;
   --ev-default:          #8a9ab5;
@@ -276,6 +278,8 @@ svg  { display: block; }
 .ev-badge-kindle-book      { background: rgba(192,132,252,.13); color: var(--ev-kindle-book); }
 .ev-badge-tolino-highlight { background: rgba(245,158,11,.13); color: var(--ev-tolino-highlight); }
 .ev-badge-tolino-book      { background: rgba(168,85,247,.13); color: var(--ev-tolino-book); }
+.ev-badge-pocketbook-highlight { background: rgba(236,72,153,.13); color: var(--ev-pocketbook-highlight); }
+.ev-badge-pocketbook-book      { background: rgba(244,63,94,.13); color: var(--ev-pocketbook-book); }
 .ev-badge-kodi-movie       { background: rgba(6,182,212,.13); color: var(--ev-kodi-movie); }
 .ev-badge-photo            { background: rgba(244,114,182,.13); color: var(--ev-photo); }
 .ev-badge-default          { background: rgba(138,154,181,.13); color: var(--ev-default); }
@@ -332,6 +336,10 @@ svg  { display: block; }
 
 .ev-card-tolino-highlight .ev-quote {
   border-left-color: var(--ev-tolino-highlight);
+}
+
+.ev-card-pocketbook-highlight .ev-quote {
+  border-left-color: var(--ev-pocketbook-highlight);
 }
 
 .ev-book-meta {
