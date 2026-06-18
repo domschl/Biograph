@@ -178,17 +178,20 @@ function renderEventCard(event) {
     card.setAttribute('data-merged-ids', ids);
   }
   
+  const isYoutubeMovie = event.ev_type === 'web-visit' && event.content && event.content.url && event.content.url.includes('youtube.com/watch?v=');
+
   // Icon emoji selection
   let badgeIcon = '•';
   if (event.ev_type === 'note') badgeIcon = '📝';
   else if (event.ev_type === 'shell-cmd') badgeIcon = '$';
+  else if (isYoutubeMovie) badgeIcon = '🎬';
   else if (event.ev_type === 'web-visit') badgeIcon = '🌐';
   else if (event.ev_type === 'kindle-highlight' || event.ev_type === 'tolino-highlight' || event.ev_type === 'pocketbook-highlight') badgeIcon = '“';
   else if (event.ev_type === 'kindle-book' || event.ev_type === 'tolino-book' || event.ev_type === 'pocketbook-book') badgeIcon = '📖';
   else if (event.ev_type === 'kodi-movie') badgeIcon = '🎬';
   else if (event.ev_type === 'photo') badgeIcon = '📷';
   
-  const badgeClass = `ev-badge ev-badge-${event.ev_type}`;
+  const badgeClass = `ev-badge ev-badge-${isYoutubeMovie ? 'kodi-movie' : event.ev_type}`;
   
   // Time formatting (local 24h)
   const time = new Date(event.timestamp);
@@ -405,10 +408,10 @@ function preprocessEvents(events) {
       return url || '';
     }
   }
-
   for (const event of events) {
+    const isYoutubeMovie = event.ev_type === 'web-visit' && event.content && event.content.url && event.content.url.includes('youtube.com/watch?v=');
     const isZshCmd = event.ev_type === 'shell-cmd' && event.source_app === 'zsh';
-    const isWebVisit = event.ev_type === 'web-visit';
+    const isWebVisit = event.ev_type === 'web-visit' && !isYoutubeMovie;
     
     // Close Zsh group if we hit any non-zsh-command
     if (!isZshCmd && currentZshGroup) {

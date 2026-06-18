@@ -8,7 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from biograph.auth import require_token
@@ -115,7 +115,21 @@ async def list_events(
     if to:
         base = base.where(Event.timestamp <= to)
     if ev_type:
-        base = base.where(Event.ev_type.in_(ev_type))
+        if "kodi-movie" in ev_type:
+            if "web-visit" in ev_type:
+                base = base.where(Event.ev_type.in_(ev_type))
+            else:
+                other_types = [t for t in ev_type if t != "kodi-movie"]
+                conditions = [
+                    Event.ev_type == "kodi-movie",
+                    (Event.ev_type == "web-visit")
+                    & Event.content.like("%youtube.com/watch?v=%"),
+                ]
+                if other_types:
+                    conditions.append(Event.ev_type.in_(other_types))
+                base = base.where(or_(*conditions))
+        else:
+            base = base.where(Event.ev_type.in_(ev_type))
     if source_host:
         base = base.where(Event.source_host == source_host)
     if source_app:

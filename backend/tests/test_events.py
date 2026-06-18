@@ -263,3 +263,40 @@ async def test_deleted_event_not_retrievable(client: AsyncClient) -> None:
     await client.delete(f"/events/{created['id']}")
     r = await client.get(f"/events/{created['id']}")
     assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_filter_kodi_movie_includes_youtube_movies(client: AsyncClient) -> None:
+    # 1. Standard kodi-movie
+    await _create(client, ev_type="kodi-movie", content={"title": "Matrix"})
+    # 2. Web visit (non-youtube)
+    await _create(client, ev_type="web-visit", content={"url": "https://google.com"})
+    # 3. Web visit (youtube watch URL)
+    await _create(client, ev_type="web-visit", content={"url": "https://www.youtube.com/watch?v=123"})
+
+    # Filter by kodi-movie only
+    r = await client.get("/events/", params={"ev_type": "kodi-movie"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 2
+    types = [e["ev_type"] for e in data["items"]]
+    assert "kodi-movie" in types
+    assert "web-visit" in types
+    urls = [e["content"].get("url") for e in data["items"] if e["ev_type"] == "web-visit"]
+    assert urls == ["https://www.youtube.com/watch?v=123"]
+
+    # Filter by web-visit only
+    r = await client.get("/events/", params={"ev_type": "web-visit"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 2
+    types = [e["ev_type"] for e in data["items"]]
+    assert "kodi-movie" not in types
+    assert all(t == "web-visit" for t in types)
+
+    # Filter by both
+    r = await client.get("/events/", params={"ev_type": ["kodi-movie", "web-visit"]})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 3
+
