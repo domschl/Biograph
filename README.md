@@ -127,6 +127,7 @@ uv run pytest
 | `pocketbook-highlight` | `book_title: str`, `author: str`, `highlight: str`, `annotation: str \| null`, `bookmark_id: str`, `location: str \| null` |
 | `pocketbook-book` | `book_title: str`, `author: str`, `content_id: str`, `percent_read: int`, `last_read: str` |
 | `kodi-movie` | `title: str`, `year: int \| null`, `imdb_id: str \| null`, `db_id: int \| null`, `file: str`, `duration_seconds: int`, `progress_percent: float`, `finished: bool` |
+| `kodi-tvshow` | `title: str`, `tvshow_title: str`, `season: int \| null`, `episode: int \| null`, `year: int \| null`, `imdb_id: str \| null`, `db_id: int \| null`, `file: str`, `duration_seconds: int`, `progress_percent: float`, `finished: bool` |
 | `photo` | `path: str`, `caption: str \| null`, `lat: float \| null`, `lon: float \| null` |
 
 ---
@@ -356,7 +357,7 @@ Sync state is stored locally inside `~/.local/share/biograph/pocketbook_state_<h
 
 ## Kodi Media Logger
 
-A background service add-on for Kodi that automatically logs movie playback events (`kodi-movie`) to your Biograph timeline.
+A background service add-on for Kodi that automatically logs movie (`kodi-movie`) and TV series (`kodi-tvshow`) playback events to your Biograph timeline.
 
 ### Features
 

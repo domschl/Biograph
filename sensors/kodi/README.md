@@ -1,11 +1,11 @@
 # Biograph Kodi Media Logger
 
-This service add-on for Kodi automatically logs movie playback events to your Biograph timeline.
+This service add-on for Kodi automatically logs movie and TV show playback events to your Biograph timeline.
 
 ## Features
 
-- **Automatic Logging:** Watches playback in the background. Logs an event as soon as a movie finishes naturally or when manually stopped after watching 85% or more of the runtime.
-- **Rich Metadata:** Captures movie Title, Release Year, IMDb ID, duration (in seconds), play progress (%), and watch status.
+- **Automatic Logging:** Watches playback in the background. Logs an event as soon as a movie or TV show episode finishes naturally or when manually stopped after watching 85% or more of the runtime.
+- **Rich Metadata:** Captures movie Title, TV Show Title, Season, Episode, Release Year, IMDb ID, duration (in seconds), play progress (%), and watch status.
 - **Zero Config:** Automatically reads your Biograph server URL and API token from your system's existing `~/.config/biograph/config.toml` file.
 
 ## Installation

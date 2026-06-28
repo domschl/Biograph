@@ -6,8 +6,8 @@
     <extension point="xbmc.service" library="service.py" />
     <extension point="xbmc.addon.metadata">
         <platform>all</platform>
-        <summary lang="en">Automatically journals movies you watch in Kodi to your Biograph timeline.</summary>
-        <description lang="en">Listens to Kodi's video player, extracts metadata when a movie finishes playing (or is watched past 85%), and logs a media event to your Biograph server.</description>
+        <summary lang="en">Automatically journals movies and TV series you watch in Kodi to your Biograph timeline.</summary>
+        <description lang="en">Listens to Kodi's video player, extracts metadata when a movie or TV show episode finishes playing (or is watched past 85%), and logs a media event to your Biograph server.</description>
         <license>MIT</license>
     </extension>
 </addon>

@@ -80,7 +80,7 @@ def send_event(server_url: str, token: str, event: dict[str, Any]) -> bool:
 class BiographPlayer(xbmc.Player):
     def __init__(self) -> None:
         super().__init__()
-        self.active_movie: dict[str, Any] | None = None
+        self.active_item: dict[str, Any] | None = None
 
     def onAVStarted(self) -> None:
         self.check_playback()
@@ -96,7 +96,8 @@ class BiographPlayer(xbmc.Player):
             tag = self.getVideoInfoTag()
             media_type = tag.getMediaType()
             if media_type == 'movie':
-                self.active_movie = {
+                self.active_item = {
+                    'type': 'movie',
                     'title': tag.getTitle(),
                     'year': tag.getYear(),
                     'imdb_id': tag.getIMDBNumber(),
@@ -105,35 +106,56 @@ class BiographPlayer(xbmc.Player):
                     'duration': self.getTotalTime(),
                     'started_at': datetime.now(UTC).isoformat()
                 }
-                xbmc.log(f"[Biograph] Started tracking movie: {self.active_movie['title']}", level=xbmc.LOGINFO)
+                xbmc.log(f"[Biograph] Started tracking movie: {self.active_item['title']}", level=xbmc.LOGINFO)
+            elif media_type == 'episode':
+                self.active_item = {
+                    'type': 'episode',
+                    'title': tag.getTitle(),
+                    'tvshow_title': tag.getTVShowTitle(),
+                    'season': tag.getSeason(),
+                    'episode': tag.getEpisode(),
+                    'year': tag.getYear(),
+                    'imdb_id': tag.getIMDBNumber(),
+                    'db_id': tag.getDbId(),
+                    'file': self.getPlayingFile(),
+                    'duration': self.getTotalTime(),
+                    'started_at': datetime.now(UTC).isoformat()
+                }
+                season = self.active_item.get('season')
+                episode = self.active_item.get('episode')
+                season_str = f"S{season:02d}" if isinstance(season, int) else f"S{season}"
+                episode_str = f"E{episode:02d}" if isinstance(episode, int) else f"E{episode}"
+                xbmc.log(f"[Biograph] Started tracking TV show: {self.active_item['tvshow_title']} {season_str}{episode_str} - {self.active_item['title']}", level=xbmc.LOGINFO)
             else:
-                self.active_movie = None
+                self.active_item = None
         except Exception as e:
             xbmc.log(f"[Biograph] Error getting video info tag: {e}", level=xbmc.LOGERROR)
-            self.active_movie = None
+            self.active_item = None
 
     def onPlayBackEnded(self) -> None:
-        if self.active_movie:
-            xbmc.log(f"[Biograph] Playback ended naturally for: {self.active_movie['title']}", level=xbmc.LOGINFO)
+        if self.active_item:
+            item_name = self.active_item.get('tvshow_title') if self.active_item.get('type') == 'episode' else self.active_item.get('title')
+            xbmc.log(f"[Biograph] Playback ended naturally for: {item_name}", level=xbmc.LOGINFO)
             self.log_watched(finished=True)
-        self.active_movie = None
+        self.active_item = None
 
     def onPlayBackStopped(self) -> None:
-        if self.active_movie:
+        if self.active_item:
             try:
                 current_time = self.getTime()
-                total_time = self.active_movie['duration']
+                total_time = self.active_item['duration']
                 if total_time > 0:
                     progress = (current_time / total_time) * 100
-                    xbmc.log(f"[Biograph] Playback stopped for: {self.active_movie['title']} at {progress:.1f}%", level=xbmc.LOGINFO)
+                    item_name = self.active_item.get('tvshow_title') if self.active_item.get('type') == 'episode' else self.active_item.get('title')
+                    xbmc.log(f"[Biograph] Playback stopped for: {item_name} at {progress:.1f}%", level=xbmc.LOGINFO)
                     if progress >= 85:
                         self.log_watched(finished=False, progress=progress)
             except Exception as e:
                 xbmc.log(f"[Biograph] Error checking playback progress: {e}", level=xbmc.LOGERROR)
-        self.active_movie = None
+        self.active_item = None
 
     def log_watched(self, finished: bool = True, progress: float = 100.0) -> None:
-        if not self.active_movie:
+        if not self.active_item:
             return
 
         config = parse_config()
@@ -141,30 +163,58 @@ class BiographPlayer(xbmc.Player):
             xbmc.log("[Biograph] Configuration not found, skipping event logging.", level=xbmc.LOGWARNING)
             return
 
-        event = {
-            "timestamp": datetime.now(UTC).isoformat(),
-            "ev_type": "kodi-movie",
-            "source_host": socket.gethostname(),
-            "source_app": "kodi-addon",
-            "content": {
-                "title": self.active_movie["title"],
-                "year": self.active_movie["year"],
-                "imdb_id": self.active_movie["imdb_id"],
-                "db_id": self.active_movie["db_id"],
-                "file": self.active_movie["file"],
-                "duration_seconds": int(self.active_movie["duration"]),
+        item_type = self.active_item.get('type', 'movie')
+        if item_type == 'episode':
+            event_type = "kodi-tvshow"
+            content = {
+                "title": self.active_item["title"],
+                "tvshow_title": self.active_item["tvshow_title"],
+                "season": self.active_item["season"],
+                "episode": self.active_item["episode"],
+                "year": self.active_item["year"],
+                "imdb_id": self.active_item["imdb_id"],
+                "db_id": self.active_item["db_id"],
+                "file": self.active_item["file"],
+                "duration_seconds": int(self.active_item["duration"]),
                 "progress_percent": round(progress, 1),
                 "finished": finished
-            },
-            "tags": ["media", "movie", "kodi"]
+            }
+            tags = ["media", "tvshow", "kodi"]
+            season = self.active_item.get('season')
+            episode = self.active_item.get('episode')
+            season_str = f"S{season:02d}" if isinstance(season, int) else f"S{season}"
+            episode_str = f"E{episode:02d}" if isinstance(episode, int) else f"E{episode}"
+            display_title = f"{self.active_item['tvshow_title']} {season_str}{episode_str} - {self.active_item['title']}"
+        else:
+            event_type = "kodi-movie"
+            content = {
+                "title": self.active_item["title"],
+                "year": self.active_item["year"],
+                "imdb_id": self.active_item["imdb_id"],
+                "db_id": self.active_item["db_id"],
+                "file": self.active_item["file"],
+                "duration_seconds": int(self.active_item["duration"]),
+                "progress_percent": round(progress, 1),
+                "finished": finished
+            }
+            tags = ["media", "movie", "kodi"]
+            display_title = self.active_item["title"]
+
+        event = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "ev_type": event_type,
+            "source_host": socket.gethostname(),
+            "source_app": "kodi-addon",
+            "content": content,
+            "tags": tags
         }
 
-        xbmc.log(f"[Biograph] Sending movie watched event: {event['content']['title']}", level=xbmc.LOGINFO)
+        xbmc.log(f"[Biograph] Sending watched event: {display_title}", level=xbmc.LOGINFO)
         success = send_event(config["url"], config["token"], event)
         if success:
-            xbmc.log(f"[Biograph] Event logged successfully for: {event['content']['title']}", level=xbmc.LOGINFO)
+            xbmc.log(f"[Biograph] Event logged successfully for: {display_title}", level=xbmc.LOGINFO)
         else:
-            xbmc.log(f"[Biograph] Failed to log event for: {event['content']['title']}", level=xbmc.LOGWARNING)
+            xbmc.log(f"[Biograph] Failed to log event for: {display_title}", level=xbmc.LOGWARNING)
 
 
 if __name__ == '__main__':

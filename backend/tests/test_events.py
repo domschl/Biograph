@@ -300,3 +300,37 @@ async def test_list_filter_kodi_movie_includes_youtube_movies(client: AsyncClien
     data = r.json()
     assert data["total"] == 3
 
+
+@pytest.mark.asyncio
+async def test_kodi_tvshow(client: AsyncClient) -> None:
+    # Create kodi-tvshow event
+    created = await _create(
+        client,
+        ev_type="kodi-tvshow",
+        content={
+            "title": "Pilot",
+            "tvshow_title": "Breaking Bad",
+            "season": 1,
+            "episode": 1,
+            "year": 2008,
+            "imdb_id": "tt0903747",
+            "db_id": 42,
+            "file": "/path/to/breaking_bad_s01e01.mkv",
+            "duration_seconds": 3480,
+            "progress_percent": 100.0,
+            "finished": True,
+        },
+        tags=["media", "tvshow", "kodi"],
+    )
+    assert created["ev_type"] == "kodi-tvshow"
+    assert created["content"]["tvshow_title"] == "Breaking Bad"
+
+    # List and filter by kodi-tvshow
+    r = await client.get("/events/", params={"ev_type": "kodi-tvshow"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 1
+    assert data["items"][0]["ev_type"] == "kodi-tvshow"
+    assert data["items"][0]["content"]["title"] == "Pilot"
+
+

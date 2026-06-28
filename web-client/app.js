@@ -189,6 +189,7 @@ function renderEventCard(event) {
   else if (event.ev_type === 'kindle-highlight' || event.ev_type === 'tolino-highlight' || event.ev_type === 'pocketbook-highlight') badgeIcon = '“';
   else if (event.ev_type === 'kindle-book' || event.ev_type === 'tolino-book' || event.ev_type === 'pocketbook-book') badgeIcon = '📖';
   else if (event.ev_type === 'kodi-movie') badgeIcon = '🎬';
+  else if (event.ev_type === 'kodi-tvshow') badgeIcon = '📺';
   else if (event.ev_type === 'photo') badgeIcon = '📷';
   
   const badgeClass = `ev-badge ev-badge-${isYoutubeMovie ? 'kodi-movie' : event.ev_type}`;
@@ -309,6 +310,30 @@ function renderEventCard(event) {
     const yearText = c.year ? ` (${c.year})` : '';
     contentHtml = `
       <div class="ev-title">${statusText} <strong>${escapeHtml(c.title || 'Unknown Movie')}</strong>${yearText}</div>
+      <div class="ev-book-meta">
+        ${c.duration_seconds ? `· Duration: ${Math.round(c.duration_seconds / 60)} min` : ''}
+        ${progressText}
+        ${c.imdb_id ? `· IMDb: <a href="https://www.imdb.com/title/${escapeHtml(c.imdb_id)}/" target="_blank" style="color: var(--text-2); text-decoration: underline;">${escapeHtml(c.imdb_id)}</a>` : ''}
+      </div>
+    `;
+  } else if (event.ev_type === 'kodi-tvshow') {
+    const isFinished = c.finished !== false;
+    const progressText = c.progress_percent !== undefined && c.progress_percent !== null && c.progress_percent !== 100 ? `· Progress: ${c.progress_percent}%` : '';
+    const statusText = isFinished ? 'Finished episode:' : 'Watched episode:';
+    let epInfo = '';
+    if (c.season !== undefined && c.season !== null && c.episode !== undefined && c.episode !== null) {
+      const s = typeof c.season === 'number' ? String(c.season).padStart(2, '0') : c.season;
+      const e = typeof c.episode === 'number' ? String(c.episode).padStart(2, '0') : c.episode;
+      epInfo = ` S${s}E${e}`;
+    } else if (c.season !== undefined && c.season !== null) {
+      epInfo = ` Season ${c.season}`;
+    } else if (c.episode !== undefined && c.episode !== null) {
+      epInfo = ` Episode ${c.episode}`;
+    }
+    const showTitle = c.tvshow_title ? `${escapeHtml(c.tvshow_title)}${epInfo}: ` : '';
+    const episodeTitle = c.title ? `"${escapeHtml(c.title)}"` : 'Unknown Episode';
+    contentHtml = `
+      <div class="ev-title">${statusText} <strong>${showTitle}${episodeTitle}</strong></div>
       <div class="ev-book-meta">
         ${c.duration_seconds ? `· Duration: ${Math.round(c.duration_seconds / 60)} min` : ''}
         ${progressText}
@@ -789,6 +814,9 @@ function renderSearchView(container) {
       <label class="filter-chip ${isActive('kodi-movie')}">
         <input type="checkbox" value="kodi-movie" class="filter-type-checkbox" ${isChecked('kodi-movie')}> Movie
       </label>
+      <label class="filter-chip ${isActive('kodi-tvshow')}">
+        <input type="checkbox" value="kodi-tvshow" class="filter-type-checkbox" ${isChecked('kodi-tvshow')}> TV Show
+      </label>
       <label class="filter-chip ${isActive('photo')}">
         <input type="checkbox" value="photo" class="filter-type-checkbox" ${isChecked('photo')}> Photo
       </label>
@@ -1199,6 +1227,7 @@ async function renderStatsView(container) {
           'pocketbook-highlight': '#ec4899',
           'pocketbook-book': '#f43f5e',
           'kodi-movie': '#06b6d4',
+          'kodi-tvshow': '#0ea5e9',
           'photo': '#f472b6',
           'default': '#8a9ab5'
         };
@@ -1354,6 +1383,7 @@ function drawDonutChart(canvas, data) {
     'pocketbook-highlight': '#ec4899',
     'pocketbook-book': '#f43f5e',
     'kodi-movie': '#06b6d4',
+    'kodi-tvshow': '#0ea5e9',
     'photo': '#f472b6',
     'default': '#8a9ab5'
   };

@@ -45,6 +45,7 @@
   --ev-pocketbook-highlight: #ec4899;
   --ev-pocketbook-book:      #f43f5e;
   --ev-kodi-movie:       #06b6d4;
+  --ev-kodi-tvshow:      #0ea5e9;
   --ev-photo:            #f472b6;
   --ev-default:          #8a9ab5;
 
@@ -281,6 +282,7 @@ svg  { display: block; }
 .ev-badge-pocketbook-highlight { background: rgba(236,72,153,.13); color: var(--ev-pocketbook-highlight); }
 .ev-badge-pocketbook-book      { background: rgba(244,63,94,.13); color: var(--ev-pocketbook-book); }
 .ev-badge-kodi-movie       { background: rgba(6,182,212,.13); color: var(--ev-kodi-movie); }
+.ev-badge-kodi-tvshow      { background: rgba(14,165,233,.13); color: var(--ev-kodi-tvshow); }
 .ev-badge-photo            { background: rgba(244,114,182,.13); color: var(--ev-photo); }
 .ev-badge-default          { background: rgba(138,154,181,.13); color: var(--ev-default); }
 
