@@ -22,6 +22,21 @@ Authenticated = Annotated[None, Depends(require_token)]
 Session = Annotated[AsyncSession, Depends(get_session)]
 
 
+def is_ereader_event(ev_type: str) -> bool:
+    """Check if the event type belongs to an EReader."""
+    return any(
+        ev_type.startswith(prefix)
+        for prefix in ("kindle-", "tolino-", "pocketbook-")
+    )
+
+
+def _normalize_dt(dt: datetime) -> datetime:
+    """Normalize datetime to naive UTC for consistent comparison."""
+    if dt.tzinfo is not None:
+        return dt.astimezone(UTC).replace(tzinfo=None)
+    return dt
+
+
 # ---------------------------------------------------------------------------
 # Create
 # ---------------------------------------------------------------------------
@@ -34,6 +49,17 @@ async def create_event(
     session: Session,
 ) -> EventRead:
     """Create a single event."""
+    if is_ereader_event(body.ev_type):
+        normalized_ts = _normalize_dt(body.timestamp)
+        stmt = select(Event).where(
+            Event.deleted_at.is_(None),
+            Event.timestamp == normalized_ts,
+            Event.ev_type == body.ev_type,
+        )
+        existing = (await session.execute(stmt)).scalars().first()
+        if existing:
+            return EventRead.from_event(existing)
+
     event = Event(
         timestamp=body.timestamp,
         received_at=datetime.now(UTC),
@@ -64,24 +90,75 @@ async def create_events_batch(
     if not body:
         return []
     now = datetime.now(UTC)
-    events = [
-        Event(
-            timestamp=e.timestamp,
-            received_at=now,
-            ev_type=e.ev_type,
-            source_host=e.source_host,
-            source_app=e.source_app,
-            content=json.dumps(e.content),
-            tags=json.dumps(e.tags),
-            summary=e.summary,
+
+    # Separate EReader events for deduplication pre-fetching
+    ereader_events = [e for e in body if is_ereader_event(e.ev_type)]
+    existing_ereader_map = {}
+    if ereader_events:
+        timestamps = [_normalize_dt(e.timestamp) for e in ereader_events]
+        ev_types = list({e.ev_type for e in ereader_events})
+
+        # Batch query matching existing ereader events
+        stmt = select(Event).where(
+            Event.deleted_at.is_(None),
+            Event.timestamp.in_(timestamps),
+            Event.ev_type.in_(ev_types),
         )
-        for e in body
-    ]
-    session.add_all(events)
-    await session.commit()
-    for ev in events:
-        await session.refresh(ev)
-    return [EventRead.from_event(ev) for ev in events]
+        db_existing = (await session.execute(stmt)).scalars().all()
+        for ex in db_existing:
+            existing_ereader_map[(_normalize_dt(ex.timestamp), ex.ev_type)] = ex
+
+    events_to_insert = []
+    response_events = []
+
+    for e in body:
+        if is_ereader_event(e.ev_type):
+            key = (_normalize_dt(e.timestamp), e.ev_type)
+            dup = existing_ereader_map.get(key)
+
+            # Also check for duplicates within the incoming batch itself
+            if not dup:
+                for inserted in events_to_insert:
+                    if _normalize_dt(inserted.timestamp) == key[0] and inserted.ev_type == key[1]:
+                        dup = inserted
+                        break
+
+            if dup:
+                response_events.append(dup)
+            else:
+                new_event = Event(
+                    timestamp=e.timestamp,
+                    received_at=now,
+                    ev_type=e.ev_type,
+                    source_host=e.source_host,
+                    source_app=e.source_app,
+                    content=json.dumps(e.content),
+                    tags=json.dumps(e.tags),
+                    summary=e.summary,
+                )
+                events_to_insert.append(new_event)
+                response_events.append(new_event)
+        else:
+            new_event = Event(
+                timestamp=e.timestamp,
+                received_at=now,
+                ev_type=e.ev_type,
+                source_host=e.source_host,
+                source_app=e.source_app,
+                content=json.dumps(e.content),
+                tags=json.dumps(e.tags),
+                summary=e.summary,
+            )
+            events_to_insert.append(new_event)
+            response_events.append(new_event)
+
+    if events_to_insert:
+        session.add_all(events_to_insert)
+        await session.commit()
+        for ev in events_to_insert:
+            await session.refresh(ev)
+
+    return [EventRead.from_event(ev) for ev in response_events]
 
 
 # ---------------------------------------------------------------------------

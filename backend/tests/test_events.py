@@ -334,3 +334,116 @@ async def test_kodi_tvshow(client: AsyncClient) -> None:
     assert data["items"][0]["content"]["title"] == "Pilot"
 
 
+@pytest.mark.asyncio
+async def test_ereader_deduplication_single(client: AsyncClient) -> None:
+    ts = "2026-07-01T12:00:00Z"
+
+    # 1. Create first Kindle highlight
+    r1 = await client.post(
+        "/events/",
+        json=_event_payload(
+            timestamp=ts,
+            ev_type="kindle-highlight",
+            content={"highlight": "First snippet", "book_title": "Book A"}
+        )
+    )
+    assert r1.status_code == 201
+    data1 = r1.json()
+    id1 = data1["id"]
+
+    # 2. Try to create the same highlight again (same timestamp and type, different content)
+    r2 = await client.post(
+        "/events/",
+        json=_event_payload(
+            timestamp=ts,
+            ev_type="kindle-highlight",
+            content={"highlight": "Second snippet (content is ignored for dedup)", "book_title": "Book A"}
+        )
+    )
+    assert r2.status_code == 201
+    data2 = r2.json()
+    id2 = data2["id"]
+
+    # Assert they returned the same event ID
+    assert id1 == id2
+
+    # Verify only one exists in database
+    r_list = await client.get("/events/", params={"ev_type": "kindle-highlight"})
+    assert r_list.status_code == 200
+    assert r_list.json()["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_non_ereader_no_deduplication(client: AsyncClient) -> None:
+    ts = "2026-07-01T12:00:00Z"
+
+    # Create two shell commands with the exact same timestamp
+    r1 = await client.post(
+        "/events/",
+        json=_event_payload(
+            timestamp=ts,
+            ev_type="shell-cmd",
+            content={"cmd": "ls"}
+        )
+    )
+    assert r1.status_code == 201
+    id1 = r1.json()["id"]
+
+    r2 = await client.post(
+        "/events/",
+        json=_event_payload(
+            timestamp=ts,
+            ev_type="shell-cmd",
+            content={"cmd": "pwd"}
+        )
+    )
+    assert r2.status_code == 201
+    id2 = r2.json()["id"]
+
+    # They must be separate events with different IDs
+    assert id1 != id2
+
+    # Both must exist in the database
+    r_list = await client.get("/events/", params={"ev_type": "shell-cmd"})
+    assert r_list.status_code == 200
+    assert r_list.json()["total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_ereader_deduplication_batch(client: AsyncClient) -> None:
+    ts1 = "2026-07-01T12:00:00Z"
+    ts2 = "2026-07-01T12:05:00Z"
+
+    # 1. Pre-insert one highlight in DB
+    await client.post(
+        "/events/",
+        json=_event_payload(
+            timestamp=ts1,
+            ev_type="tolino-highlight",
+            content={"highlight": "Existing"}
+        )
+    )
+
+    # 2. Post a batch containing:
+    #    - An event matching the pre-inserted one (should be deduped)
+    #    - Two identical new events within the batch (should be deduped to one)
+    #    - A non-ereader event with same timestamp (should not be deduped)
+    batch = [
+        _event_payload(timestamp=ts1, ev_type="tolino-highlight", content={"highlight": "Existing clone"}),
+        _event_payload(timestamp=ts2, ev_type="tolino-highlight", content={"highlight": "New highlight 1"}),
+        _event_payload(timestamp=ts2, ev_type="tolino-highlight", content={"highlight": "New highlight 2"}),
+        _event_payload(timestamp=ts2, ev_type="shell-cmd", content={"cmd": "echo 1"}),
+    ]
+
+    r = await client.post("/events/batch", json=batch)
+    assert r.status_code == 201
+    results = r.json()
+    assert len(results) == 4
+
+    # 3. Query all tolino highlights to make sure only 2 exist in total
+    r_list = await client.get("/events/", params={"ev_type": "tolino-highlight"})
+    assert r_list.status_code == 200
+    assert r_list.json()["total"] == 2
+
+
+

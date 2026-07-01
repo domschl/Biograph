@@ -108,6 +108,62 @@ def test_cli_kindle_direct_file(tmp_path: Path, monkeypatch):
 
 
 @respx.mock
+def test_cli_kindle_german(tmp_path: Path, monkeypatch):
+    # Mock storage state path so we don't write to ~/.local/share/
+    monkeypatch.setattr("biograph_cli.bio._load_kindle_state", lambda url: {"sent_hashes": [], "sent_books": []})
+    monkeypatch.setattr("biograph_cli.bio._save_kindle_state", lambda url, s: None)
+    
+    clippings = tmp_path / "german_clippings.txt"
+    clippings_content = (
+        "Natural Language Processing with Transformers (Tunstall, Lewis;Werra, Leandro von;Wolf, Thomas)\n"
+        "- Deine Notiz auf Seite 29 | bei Position 351 | Hinzugefügt am Samstag, 18. Februar 2023 14:06:30\n"
+        "\n"
+        "Hier sollten wir noch ausbauen!\n"
+        "==========\n"
+        "Natural Language Processing with Transformers (Tunstall, Lewis;Werra, Leandro von;Wolf, Thomas)\n"
+        "- Deine Markierung auf Seite 29 | bei Position 351-351 | Hinzugefügt am Samstag, 18. Februar 2023 14:06:30\n"
+        "\n"
+        "encoder\n"
+        "==========\n"
+    )
+    clippings.write_text(clippings_content, encoding="utf-8")
+    
+    events_sent = []
+    
+    def side_effect(request):
+        import json
+        data = json.loads(request.read())
+        events_sent.extend(data)
+        return httpx.Response(201, json=[{"id": i} for i in range(len(data))])
+        
+    route = respx.post(f"{FAKE_URL}/events/batch").mock(side_effect=side_effect)
+    
+    result = runner.invoke(app, ["kindle", str(clippings)])
+    assert result.exit_code == 0
+    assert "Successfully imported" in result.output
+    assert route.called
+    
+    # We expect 2 events sent:
+    # 1. kindle-book event for "Natural Language Processing with Transformers"
+    # 2. kindle-highlight event for the "encoder" highlight (the note is ignored as a highlight but the book is tracked)
+    assert len(events_sent) == 2
+    
+    # Check book event
+    book_event = next(e for e in events_sent if e["ev_type"] == "kindle-book")
+    assert book_event["content"]["book_title"] == "Natural Language Processing with Transformers"
+    assert book_event["content"]["author"] == "Tunstall, Lewis;Werra, Leandro von;Wolf, Thomas"
+    assert book_event["timestamp"].startswith("2023-02-18T")
+    
+    # Check highlight event
+    highlight_event = next(e for e in events_sent if e["ev_type"] == "kindle-highlight")
+    assert highlight_event["content"]["book_title"] == "Natural Language Processing with Transformers"
+    assert highlight_event["content"]["author"] == "Tunstall, Lewis;Werra, Leandro von;Wolf, Thomas"
+    assert highlight_event["content"]["highlight"] == "encoder"
+    assert highlight_event["content"]["location"] == 351
+    assert highlight_event["timestamp"].startswith("2023-02-18T")
+
+
+@respx.mock
 def test_cli_tolino(tmp_path: Path, monkeypatch):
     # Mock storage state path so we don't write to ~/.local/share/
     monkeypatch.setattr("biograph_cli.bio._load_tolino_state", lambda url: {"sent_bookmark_ids": [], "sent_book_progress": {}})

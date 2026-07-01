@@ -328,18 +328,71 @@ def search(
 # ---------------------------------------------------------------------------
 
 
+MONTH_TO_NUM: dict[str, str] = {
+    # English
+    "january": "01", "february": "02", "march": "03", "april": "04", "may": "05", "june": "06",
+    "july": "07", "august": "08", "september": "09", "october": "10", "november": "11", "december": "12",
+    "jan": "01", "feb": "02", "mar": "03", "apr": "04", "jun": "06",
+    "jul": "07", "aug": "08", "sep": "09", "oct": "10", "nov": "11", "dec": "12",
+    
+    # German
+    "januar": "01", "februar": "02", "märz": "03", "maerz": "03", "mai": "05", "juni": "06",
+    "juli": "07", "oktober": "10", "dezember": "12",
+    "mär": "03", "maer": "03", "okt": "10", "dez": "12",
+    
+    # Spanish
+    "enero": "01", "febrero": "02", "marzo": "03", "abril": "04", "mayo": "05", "junio": "06",
+    "julio": "07", "agosto": "08", "septiembre": "09", "octubre": "10", "noviembre": "11", "diciembre": "12",
+    "ene": "01", "abr": "04", "ago": "08", "set": "09", "dic": "12",
+    
+    # French
+    "janvier": "01", "février": "02", "fevrier": "02", "mars": "03", "avril": "04", "mai": "05", "juin": "06",
+    "juillet": "07", "août": "08", "aout": "08", "septembre": "09", "octobre": "10", "novembre": "11", "décembre": "12", "decembre": "12",
+    "janv": "01", "févr": "02", "fevr": "02", "juil": "07", "sept": "09", "déc": "12", "dec": "12",
+    
+    # Italian
+    "gennaio": "01", "febbraio": "02", "aprile": "04", "maggio": "05", "giugno": "06",
+    "luglio": "07", "settembre": "09", "ottobre": "10", "dicembre": "12",
+    "genn": "01", "febbr": "02", "magg": "05", "giugn": "06", "lugl": "07", "ag": "08", "sett": "09", "ott": "10", "dic": "12",
+    
+    # Portuguese
+    "janeiro": "01", "fevereiro": "02", "março": "03", "marco": "03", "junho": "06",
+    "julho": "07", "outubro": "10", "dezembro": "12",
+    "fev": "02", "out": "10",
+}
+
+WEEKDAYS_REGEX = re.compile(
+    r"^(?:"
+    r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonnabend|sonntag|"
+    r"lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|domingo|"
+    r"lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|"
+    r"lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|"
+    r"segunda-feira|terça-feira|quarta-feira|quinta-feira|sexta-feira|"
+    r"segunda|terça|terca|quarta|quinta|sexta"
+    r")[\s,]*",
+    re.IGNORECASE
+)
+
+
 def parse_kindle_date(date_str: str) -> datetime | None:
-    date_str = re.sub(r"^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s*", "", date_str)
-    date_str = re.sub(r"\bde\b", "", date_str)
+    date_str = WEEKDAYS_REGEX.sub("", date_str).strip()
+    date_str = re.sub(r"\bde\b", "", date_str, flags=re.IGNORECASE)
     date_str = re.sub(r"\s+", " ", date_str).strip()
     
+    def replace_month(match: re.Match[str]) -> str:
+        w = match.group(0)
+        w_lower = w.lower()
+        return MONTH_TO_NUM.get(w_lower, w)
+    
+    date_str = re.sub(r"\b\w+\b", replace_month, date_str)
+    
     formats = [
-        "%d %B %Y %H:%M:%S",      # 15 October 2022 13:45:22
-        "%B %d, %Y %I:%M:%S %p",  # October 15, 2022 1:45:22 PM
-        "%d %b %Y %H:%M:%S",      # 15 Oct 2022 13:45:22
-        "%d. %B %Y %H:%M:%S",     # 15. Oktober 2022 13:45:22
-        "%d %B %Y %I:%M:%S %p",
-        "%B %d, %Y %H:%M:%S",
+        "%d %m %Y %H:%M:%S",
+        "%m %d, %Y %I:%M:%S %p",
+        "%d. %m %Y %H:%M:%S",
+        "%d %m %Y %I:%M:%S %p",
+        "%m %d, %Y %H:%M:%S",
     ]
     for fmt in formats:
         try:
@@ -376,20 +429,24 @@ def parse_clippings(content: str) -> list[dict[str, Any]]:
             author = "Unknown"
             
         location = None
-        location_match = re.search(r"Location (\d+)", metadata)
+        location_match = re.search(r"(?:location|position|posición|posição|emplacement|posizione|loc\.|pos\.)\s+(\d+)", metadata, re.IGNORECASE)
         if location_match:
             location = int(location_match.group(1))
             
         timestamp = datetime.now(UTC).isoformat()
         for part in metadata.split("|"):
             part = part.strip()
-            if part.startswith("Added on "):
-                date_str = part.replace("Added on ", "").strip()
+            match = re.match(r"^(?:Added on|Hinzugefügt am|Añadido el|Ajouté le|Adicionado em|Aggiunto (?:il|in))\s+(.*)$", part, re.IGNORECASE)
+            if match:
+                date_str = match.group(1).strip()
                 parsed_dt = parse_kindle_date(date_str)
                 if parsed_dt:
                     timestamp = parsed_dt.astimezone(UTC).isoformat()
                     
-        is_highlight = "Highlight" in metadata
+        is_highlight = any(
+            kw in metadata.lower()
+            for kw in ["highlight", "markierung", "subrayado", "surlign", "evidenziazione", "destaque"]
+        )
         
         parsed_items.append({
             "book_title": book_title,
