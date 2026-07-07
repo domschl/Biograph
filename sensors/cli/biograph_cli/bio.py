@@ -598,6 +598,7 @@ def kindle(
                     "ev_type": "kindle-book",
                     "source_host": "kindle",
                     "source_app": "kindle-clippings",
+                    "remote_id": f"kindle-book:{book_key}",
                     "content": {
                         "book_title": item["book_title"],
                         "author": item["author"],
@@ -622,6 +623,7 @@ def kindle(
                         "ev_type": "kindle-highlight",
                         "source_host": "kindle",
                         "source_app": "kindle-clippings",
+                        "remote_id": f"kindle-highlight:{clipping_hash}",
                         "content": {
                             "book_title": item["book_title"],
                             "author": item["author"],
@@ -797,6 +799,7 @@ def tolino(
                             "ev_type": "tolino-book",
                             "source_host": "tolino",
                             "source_app": "tolino-db",
+                            "remote_id": f"tolino-book:{content_id}:{last_read}",
                             "content": {
                                 "book_title": title,
                                 "author": author,
@@ -836,6 +839,7 @@ def tolino(
                         "ev_type": "tolino-highlight",
                         "source_host": "tolino",
                         "source_app": "tolino-db",
+                        "remote_id": f"tolino-highlight:{bookmark_id}",
                         "content": {
                             "book_title": book_title,
                             "author": author,
@@ -1020,6 +1024,7 @@ def pocketbook(
                             "ev_type": "pocketbook-book",
                             "source_host": "pocketbook",
                             "source_app": "pocketbook-db",
+                            "remote_id": f"pocketbook-book:{book_oid}:{last_read_time}",
                             "content": {
                                 "book_title": title,
                                 "author": author,
@@ -1104,6 +1109,7 @@ def pocketbook(
                         "ev_type": "pocketbook-highlight",
                         "source_host": "pocketbook",
                         "source_app": "pocketbook-db",
+                        "remote_id": f"pocketbook-highlight:{bookmark_id}",
                         "content": {
                             "book_title": book_title,
                             "author": author,
@@ -1150,6 +1156,219 @@ def pocketbook(
     })
 
     console.print(f"[green]✓[/green] Successfully imported {len(events_to_send)} events.")
+
+
+# ---------------------------------------------------------------------------
+# Calibre import command
+# ---------------------------------------------------------------------------
+
+
+def _load_calibre_state(server_url: str) -> dict[str, Any]:
+    state_file = _get_state_path("calibre", server_url)
+    if state_file.exists():
+        try:
+            with open(state_file, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"sent_uuids": []}
+
+
+def _save_calibre_state(server_url: str, state: dict[str, Any]) -> None:
+    state_file = _get_state_path("calibre", server_url)
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(state_file, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+def _detect_calibre_library() -> Path | None:
+    default_path = Path.home() / "Calibre Library"
+    if (default_path / "metadata.db").exists():
+        return default_path
+    return None
+
+
+def query_calibre_library(db_path: Path) -> list[dict[str, Any]]:
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # Query books
+    cursor.execute("""
+        SELECT 
+            b.id,
+            b.title,
+            b.timestamp,
+            b.pubdate,
+            b.uuid,
+            b.path,
+            b.series_index,
+            s.name AS series
+        FROM books b
+        LEFT JOIN books_series_link bsl ON bsl.book = b.id
+        LEFT JOIN series s ON s.id = bsl.series
+    """)
+    books = [dict(row) for row in cursor.fetchall()]
+
+    # Query authors
+    cursor.execute("""
+        SELECT ba.book, a.name
+        FROM books_authors_link ba
+        JOIN authors a ON a.id = ba.author
+    """)
+    authors_map = {}
+    for row in cursor.fetchall():
+        authors_map.setdefault(row["book"], []).append(row["name"])
+
+    # Query tags
+    cursor.execute("""
+        SELECT bt.book, t.name
+        FROM books_tags_link bt
+        JOIN tags t ON t.id = bt.tag
+    """)
+    tags_map = {}
+    for row in cursor.fetchall():
+        tags_map.setdefault(row["book"], []).append(row["name"])
+
+    # Query formats
+    cursor.execute("""
+        SELECT d.book, d.format
+        FROM data d
+    """)
+    formats_map = {}
+    for row in cursor.fetchall():
+        formats_map.setdefault(row["book"], []).append(row["format"])
+
+    # Query identifiers
+    cursor.execute("""
+        SELECT i.book, i.type, i.val
+        FROM identifiers i
+    """)
+    identifiers_map = {}
+    for row in cursor.fetchall():
+        identifiers_map.setdefault(row["book"], {})[row["type"]] = row["val"]
+
+    conn.close()
+
+    parsed_books = []
+    for b in books:
+        book_id = b["id"]
+        raw_ts = b["timestamp"]
+        try:
+            if raw_ts.endswith("+00:00"):
+                ts = datetime.fromisoformat(raw_ts)
+            else:
+                ts = datetime.fromisoformat(raw_ts).replace(tzinfo=UTC)
+        except Exception:
+            ts = datetime.now(UTC)
+
+        raw_pub = b["pubdate"]
+        pubdate_iso = None
+        if raw_pub:
+            try:
+                if raw_pub.endswith("+00:00"):
+                    pubdate_iso = datetime.fromisoformat(raw_pub).isoformat()
+                else:
+                    pubdate_iso = datetime.fromisoformat(raw_pub).replace(tzinfo=UTC).isoformat()
+            except Exception:
+                pass
+
+        ids = identifiers_map.get(book_id, {})
+        isbn = ids.get("isbn")
+
+        parsed_books.append({
+            "timestamp": ts.isoformat(),
+            "ev_type": "calibre-book",
+            "source_host": socket.gethostname(),
+            "source_app": "calibre",
+            "remote_id": b["uuid"],
+            "content": {
+                "uuid": b["uuid"],
+                "title": b["title"],
+                "authors": authors_map.get(book_id, []),
+                "series": b["series"],
+                "series_index": b["series_index"],
+                "isbn": isbn,
+                "path": b["path"],
+                "pubdate": pubdate_iso,
+                "formats": formats_map.get(book_id, []),
+                "tags": tags_map.get(book_id, [])
+            },
+            "tags": ["reading", "book", "calibre"]
+        })
+    return parsed_books
+
+
+@app.command()
+def calibre(
+    path: Path | None = typer.Argument(
+        None,
+        help="Path to Calibre Library directory or directly to metadata.db. If omitted, it will try to auto-detect.",
+    ),
+) -> None:
+    """Import books added to Calibre library."""
+    if path is not None:
+        lib_path = path
+    else:
+        lib_path = _detect_calibre_library()
+        if lib_path is None:
+            err.print(
+                "[red]Error:[/red] No Calibre library path specified and could not auto-detect."
+            )
+            err.print("Please specify the path: [bold]bio calibre <path>[/bold]")
+            raise typer.Exit(1)
+
+    db_file = lib_path if lib_path.name == "metadata.db" else lib_path / "metadata.db"
+    if not db_file.exists():
+        err.print(f"[red]Error:[/red] Calibre database not found at '{db_file}'")
+        raise typer.Exit(1)
+
+    config = _load_config()
+    server_url = _server_url(config)
+    state = _load_calibre_state(server_url)
+    sent_uuids = set(state.get("sent_uuids", []))
+
+    console.print(f"[dim]Processing Calibre library at: {db_file.parent}[/dim]")
+
+    try:
+        books = query_calibre_library(db_file)
+    except Exception as e:
+        err.print(f"[red]Error querying Calibre database:[/red] {e}")
+        raise typer.Exit(1)
+
+    events_to_send = []
+    new_uuids_to_track = []
+
+    for book in books:
+        uuid = book["content"]["uuid"]
+        if uuid not in sent_uuids:
+            new_uuids_to_track.append(uuid)
+            events_to_send.append(book)
+
+    if not events_to_send:
+        console.print("[green]No new books to import from Calibre.[/green]")
+        return
+
+    console.print(f"Found {len(events_to_send)} new books to import. Sending batch...")
+
+    with _http_client(config) as http:
+        try:
+            resp = http.post("/events/batch", json=events_to_send)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            err.print(f"[red]Server error {exc.response.status_code}:[/red] {exc.response.text}")
+            raise typer.Exit(1)
+        except httpx.RequestError as exc:
+            err.print(f"[red]Connection error:[/red] {exc}")
+            raise typer.Exit(1)
+
+    sent_uuids.update(new_uuids_to_track)
+    _save_calibre_state(server_url, {
+        "sent_uuids": list(sent_uuids)
+    })
+
+    console.print(f"[green]✓[/green] Successfully imported {len(events_to_send)} Calibre books.")
 
 
 # ---------------------------------------------------------------------------

@@ -49,6 +49,16 @@ async def create_event(
     session: Session,
 ) -> EventRead:
     """Create a single event."""
+    if body.remote_id:
+        stmt = select(Event).where(
+            Event.deleted_at.is_(None),
+            Event.ev_type == body.ev_type,
+            Event.remote_id == body.remote_id,
+        )
+        existing = (await session.execute(stmt)).scalars().first()
+        if existing:
+            return EventRead.from_event(existing)
+
     if is_ereader_event(body.ev_type):
         normalized_ts = _normalize_dt(body.timestamp)
         stmt = select(Event).where(
@@ -60,6 +70,18 @@ async def create_event(
         if existing:
             return EventRead.from_event(existing)
 
+    if body.ev_type == "calibre-book":
+        uuid = body.content.get("uuid")
+        if uuid:
+            stmt = select(Event).where(
+                Event.deleted_at.is_(None),
+                Event.ev_type == "calibre-book",
+                Event.content.like(f'%"uuid": "{uuid}"%'),
+            )
+            existing = (await session.execute(stmt)).scalars().first()
+            if existing:
+                return EventRead.from_event(existing)
+
     event = Event(
         timestamp=body.timestamp,
         received_at=datetime.now(UTC),
@@ -69,6 +91,7 @@ async def create_event(
         content=json.dumps(body.content),
         tags=json.dumps(body.tags),
         summary=body.summary,
+        remote_id=body.remote_id,
     )
     session.add(event)
     await session.commit()
@@ -91,8 +114,23 @@ async def create_events_batch(
         return []
     now = datetime.now(UTC)
 
+    # Separate events with remote_id for deduplication pre-fetching
+    remote_id_events = [e for e in body if e.remote_id]
+    existing_remote_id_map = {}
+    if remote_id_events:
+        remote_ids = [e.remote_id for e in remote_id_events]
+        ev_types = list({e.ev_type for e in remote_id_events})
+        stmt = select(Event).where(
+            Event.deleted_at.is_(None),
+            Event.remote_id.in_(remote_ids),
+            Event.ev_type.in_(ev_types),
+        )
+        db_existing = (await session.execute(stmt)).scalars().all()
+        for ex in db_existing:
+            existing_remote_id_map[(ex.remote_id, ex.ev_type)] = ex
+
     # Separate EReader events for deduplication pre-fetching
-    ereader_events = [e for e in body if is_ereader_event(e.ev_type)]
+    ereader_events = [e for e in body if is_ereader_event(e.ev_type) and not e.remote_id]
     existing_ereader_map = {}
     if ereader_events:
         timestamps = [_normalize_dt(e.timestamp) for e in ereader_events]
@@ -108,11 +146,61 @@ async def create_events_batch(
         for ex in db_existing:
             existing_ereader_map[(_normalize_dt(ex.timestamp), ex.ev_type)] = ex
 
+    # Separate calibre-book events for deduplication pre-fetching (fallback for items without remote_id)
+    calibre_events = [e for e in body if e.ev_type == "calibre-book" and not e.remote_id]
+    existing_calibre_map = {}
+    if calibre_events:
+        conditions = []
+        for e in calibre_events:
+            if uuid := e.content.get("uuid"):
+                conditions.append(Event.content.like(f'%"uuid": "{uuid}"%'))
+        if conditions:
+            stmt = select(Event).where(
+                Event.deleted_at.is_(None),
+                Event.ev_type == "calibre-book",
+                or_(*conditions),
+            )
+            db_existing = (await session.execute(stmt)).scalars().all()
+            for ex in db_existing:
+                try:
+                    ex_content = json.loads(ex.content)
+                    if ex_uuid := ex_content.get("uuid"):
+                        existing_calibre_map[ex_uuid] = ex
+                except Exception:
+                    pass
+
     events_to_insert = []
     response_events = []
 
     for e in body:
-        if is_ereader_event(e.ev_type):
+        if e.remote_id:
+            key = (e.remote_id, e.ev_type)
+            dup = existing_remote_id_map.get(key)
+
+            # Also check for duplicates within the incoming batch itself
+            if not dup:
+                for inserted in events_to_insert:
+                    if inserted.remote_id == key[0] and inserted.ev_type == key[1]:
+                        dup = inserted
+                        break
+
+            if dup:
+                response_events.append(dup)
+            else:
+                new_event = Event(
+                    timestamp=e.timestamp,
+                    received_at=now,
+                    ev_type=e.ev_type,
+                    source_host=e.source_host,
+                    source_app=e.source_app,
+                    content=json.dumps(e.content),
+                    tags=json.dumps(e.tags),
+                    summary=e.summary,
+                    remote_id=e.remote_id,
+                )
+                events_to_insert.append(new_event)
+                response_events.append(new_event)
+        elif is_ereader_event(e.ev_type):
             key = (_normalize_dt(e.timestamp), e.ev_type)
             dup = existing_ereader_map.get(key)
 
@@ -135,6 +223,39 @@ async def create_events_batch(
                     content=json.dumps(e.content),
                     tags=json.dumps(e.tags),
                     summary=e.summary,
+                    remote_id=e.remote_id,
+                )
+                events_to_insert.append(new_event)
+                response_events.append(new_event)
+        elif e.ev_type == "calibre-book":
+            uuid = e.content.get("uuid")
+            dup = existing_calibre_map.get(uuid) if uuid else None
+
+            # Also check for duplicates within the incoming batch itself
+            if not dup and uuid:
+                for inserted in events_to_insert:
+                    if inserted.ev_type == "calibre-book":
+                        try:
+                            ins_content = json.loads(inserted.content)
+                            if ins_content.get("uuid") == uuid:
+                                dup = inserted
+                                break
+                        except Exception:
+                            pass
+
+            if dup:
+                response_events.append(dup)
+            else:
+                new_event = Event(
+                    timestamp=e.timestamp,
+                    received_at=now,
+                    ev_type=e.ev_type,
+                    source_host=e.source_host,
+                    source_app=e.source_app,
+                    content=json.dumps(e.content),
+                    tags=json.dumps(e.tags),
+                    summary=e.summary,
+                    remote_id=e.remote_id,
                 )
                 events_to_insert.append(new_event)
                 response_events.append(new_event)
@@ -148,6 +269,7 @@ async def create_events_batch(
                 content=json.dumps(e.content),
                 tags=json.dumps(e.tags),
                 summary=e.summary,
+                remote_id=e.remote_id,
             )
             events_to_insert.append(new_event)
             response_events.append(new_event)

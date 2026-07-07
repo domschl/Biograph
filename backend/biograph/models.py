@@ -35,6 +35,7 @@ class Event(SQLModel, table=True):
     tags: str = Field(default="[]")      # JSON-encoded list[str]
     summary: str | None = Field(default=None)
     deleted_at: datetime | None = Field(default=None)
+    remote_id: str | None = Field(default=None, index=True)
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +51,7 @@ class EventCreate(BaseModel):
     content: dict[str, Any] = {}
     tags: list[str] = []
     summary: str | None = None
+    remote_id: str | None = None
 
 
 class EventUpdate(BaseModel):
@@ -75,6 +77,7 @@ class EventRead(BaseModel):
     tags: list[str]
     summary: str | None
     deleted_at: datetime | None
+    remote_id: str | None
 
     @classmethod
     def from_event(cls, event: Event) -> EventRead:
@@ -90,6 +93,7 @@ class EventRead(BaseModel):
             tags=json.loads(event.tags),
             summary=event.summary,
             deleted_at=event.deleted_at.replace(tzinfo=timezone.utc) if event.deleted_at and event.deleted_at.tzinfo is None else event.deleted_at,
+            remote_id=event.remote_id,
         )
 
 

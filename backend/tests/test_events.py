@@ -446,4 +446,68 @@ async def test_ereader_deduplication_batch(client: AsyncClient) -> None:
     assert r_list.json()["total"] == 2
 
 
+@pytest.mark.asyncio
+async def test_calibre_deduplication_single(client: AsyncClient) -> None:
+    # 1. Create first Calibre book event
+    r1 = await client.post(
+        "/events/",
+        json=_event_payload(
+            ev_type="calibre-book",
+            content={"uuid": "uuid-123", "title": "Test Book", "authors": ["Author A"]}
+        )
+    )
+    assert r1.status_code == 201
+    id1 = r1.json()["id"]
+
+    # 2. Try to create the same book event again (different timestamp and other content, but same uuid)
+    r2 = await client.post(
+        "/events/",
+        json=_event_payload(
+            ev_type="calibre-book",
+            content={"uuid": "uuid-123", "title": "Test Book (Updated)", "authors": ["Author A"]}
+        )
+    )
+    assert r2.status_code == 201
+    id2 = r2.json()["id"]
+
+    # Assert they returned the same event ID (deduplicated)
+    assert id1 == id2
+
+    # Verify only one exists in database
+    r_list = await client.get("/events/", params={"ev_type": "calibre-book"})
+    assert r_list.status_code == 200
+    assert r_list.json()["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_calibre_deduplication_batch(client: AsyncClient) -> None:
+    # 1. Pre-insert one calibre book in DB
+    await client.post(
+        "/events/",
+        json=_event_payload(
+            ev_type="calibre-book",
+            content={"uuid": "uuid-existing", "title": "Existing Book"}
+        )
+    )
+
+    # 2. Post a batch containing:
+    #    - An event matching the pre-inserted uuid (should be deduped)
+    #    - Two identical new events within the batch (should be deduped to one)
+    batch = [
+        _event_payload(ev_type="calibre-book", content={"uuid": "uuid-existing", "title": "Existing Book Clone"}),
+        _event_payload(ev_type="calibre-book", content={"uuid": "uuid-new-1", "title": "New Book 1"}),
+        _event_payload(ev_type="calibre-book", content={"uuid": "uuid-new-1", "title": "New Book 1 Clone"}),
+    ]
+
+    r = await client.post("/events/batch", json=batch)
+    assert r.status_code == 201
+    results = r.json()
+    assert len(results) == 3
+
+    # 3. Query all calibre books to make sure only 2 exist in total
+    r_list = await client.get("/events/", params={"ev_type": "calibre-book"})
+    assert r_list.status_code == 200
+    assert r_list.json()["total"] == 2
+
+
 
