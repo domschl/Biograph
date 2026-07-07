@@ -16,7 +16,7 @@
 (define-public biograph-sensor-zsh
   (package
     (name "biograph-sensor-zsh")
-    (version "0.1.0")
+    (version "0.1.1")
     (source (git-reference
              (url "https://codeberg.org/domschl/Biograph.git")
              (commit (string-append "v" version)))) ; Adjust to specific commit/tag if needed

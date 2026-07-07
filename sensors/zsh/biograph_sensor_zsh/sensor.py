@@ -348,13 +348,16 @@ class HistoryHandler(FileSystemEventHandler):
                 self._state.last_timestamp = max_ts
             logger.info("Sent %d event(s) (%d buffered)", len(new_events), len(buffered))
         else:
-            # Put everything back
+            # Put everything back into local persistent buffer
             self._buffer.add(all_events)
+            # Update last_timestamp so we do not re-read these events from history next time
+            if max_ts > self._state.last_timestamp:
+                self._state.last_timestamp = max_ts
             logger.warning(
                 "Backend unreachable — buffered %d event(s) (total: %d)",
                 len(all_events),
                 len(self._buffer),
-            )
+              )
 
 
 # ---------------------------------------------------------------------------
