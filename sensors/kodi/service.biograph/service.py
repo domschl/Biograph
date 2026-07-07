@@ -81,6 +81,7 @@ class BiographPlayer(xbmc.Player):
     def __init__(self) -> None:
         super().__init__()
         self.active_item: dict[str, Any] | None = None
+        self.last_position: float = 0.0
 
     def onAVStarted(self) -> None:
         self.check_playback()
@@ -91,6 +92,7 @@ class BiographPlayer(xbmc.Player):
     def check_playback(self) -> None:
         if not self.isPlayingVideo():
             return
+        self.last_position = 0.0
         
         try:
             tag = self.getVideoInfoTag()
@@ -142,14 +144,19 @@ class BiographPlayer(xbmc.Player):
     def onPlayBackStopped(self) -> None:
         if self.active_item:
             try:
-                current_time = self.getTime()
+                try:
+                    current_time = self.getTime()
+                except Exception:
+                    current_time = getattr(self, 'last_position', 0.0)
+
                 total_time = self.active_item['duration']
                 if total_time > 0:
                     progress = (current_time / total_time) * 100
                     item_name = self.active_item.get('tvshow_title') if self.active_item.get('type') == 'episode' else self.active_item.get('title')
                     xbmc.log(f"[Biograph] Playback stopped for: {item_name} at {progress:.1f}%", level=xbmc.LOGINFO)
                     if progress >= 85:
-                        self.log_watched(finished=False, progress=progress)
+                        is_finished = progress >= 99.0
+                        self.log_watched(finished=is_finished, progress=progress)
             except Exception as e:
                 xbmc.log(f"[Biograph] Error checking playback progress: {e}", level=xbmc.LOGERROR)
         self.active_item = None
@@ -224,7 +231,13 @@ if __name__ == '__main__':
     xbmc.log("[Biograph] Background service started", level=xbmc.LOGINFO)
     
     while not monitor.abortRequested():
-        if monitor.waitForAbort(10):
+        if player.active_item:
+            try:
+                if player.isPlayingVideo():
+                    player.last_position = player.getTime()
+            except Exception:
+                pass
+        if monitor.waitForAbort(2):
             break
             
     xbmc.log("[Biograph] Background service shutting down", level=xbmc.LOGINFO)
