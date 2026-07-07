@@ -18,12 +18,13 @@ pkgver() {
 
 build() {
   cd "${srcdir}/biograph/sensors/zsh"
-  python -m build --wheel --no-isolation
+  rm -rf dist
+  /usr/bin/python -m build --wheel --no-isolation
 }
 
 package() {
   cd "${srcdir}/biograph/sensors/zsh"
-  python -m installer --destdir="${pkgdir}" dist/*.whl
+  /usr/bin/python -m installer --destdir="${pkgdir}" dist/*.whl
 
   # Customise the systemd user service to point to the system-wide executable rather than local path
   sed -i 's|%h/.local/bin/biograph-sensor-zsh|/usr/bin/biograph-sensor-zsh|g' biograph-zsh.service

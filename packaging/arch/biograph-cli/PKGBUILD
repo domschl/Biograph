@@ -18,10 +18,11 @@ pkgver() {
 
 build() {
   cd "${srcdir}/biograph/sensors/cli"
-  python -m build --wheel --no-isolation
+  rm -rf dist
+  /usr/bin/python -m build --wheel --no-isolation
 }
 
 package() {
   cd "${srcdir}/biograph/sensors/cli"
-  python -m installer --destdir="${pkgdir}" dist/*.whl
+  /usr/bin/python -m installer --destdir="${pkgdir}" dist/*.whl
 }

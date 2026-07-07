@@ -21,12 +21,13 @@ pkgver() {
 
 build() {
   cd "${srcdir}/biograph/backend"
-  python -m build --wheel --no-isolation
+  rm -rf dist
+  /usr/bin/python -m build --wheel --no-isolation
 }
 
 package() {
   cd "${srcdir}/biograph/backend"
-  python -m installer --destdir="${pkgdir}" dist/*.whl
+  /usr/bin/python -m installer --destdir="${pkgdir}" dist/*.whl
 
   # Install web client static assets
   install -d "${pkgdir}/usr/share/biograph/web-client"
