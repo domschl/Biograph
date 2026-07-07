@@ -187,7 +187,7 @@ function renderEventCard(event) {
   else if (isYoutubeMovie) badgeIcon = '🎬';
   else if (event.ev_type === 'web-visit') badgeIcon = '🌐';
   else if (event.ev_type === 'kindle-highlight' || event.ev_type === 'tolino-highlight' || event.ev_type === 'pocketbook-highlight') badgeIcon = '“';
-  else if (event.ev_type === 'kindle-book' || event.ev_type === 'tolino-book' || event.ev_type === 'pocketbook-book') badgeIcon = '📖';
+  else if (event.ev_type === 'kindle-book' || event.ev_type === 'tolino-book' || event.ev_type === 'pocketbook-book' || event.ev_type === 'calibre-book') badgeIcon = '📖';
   else if (event.ev_type === 'kodi-movie') badgeIcon = '🎬';
   else if (event.ev_type === 'kodi-tvshow') badgeIcon = '📺';
   else if (event.ev_type === 'photo') badgeIcon = '📷';
@@ -301,6 +301,17 @@ function renderEventCard(event) {
         ${c.asin ? `· ASIN: ${escapeHtml(c.asin)}` : ''}
         ${progressText}
         ${c.last_read ? `· Last read: ${new Date(c.last_read).toLocaleDateString()}` : ''}
+      </div>
+    `;
+  } else if (event.ev_type === 'calibre-book') {
+    contentHtml = `
+      <div class="ev-title">Added book to Calibre: <strong>${escapeHtml(c.title || 'Unknown Book')}</strong></div>
+      <div class="ev-book-meta">
+        by ${escapeHtml(c.authors || 'Unknown')}
+        ${c.series ? `· Series: <strong>${escapeHtml(c.series)}</strong>` : ''}
+        ${c.isbn ? `· ISBN: ${escapeHtml(c.isbn)}` : ''}
+        ${c.tags ? `· Tags: ${escapeHtml(c.tags)}` : ''}
+        ${c.formats ? `· Formats: ${escapeHtml(c.formats)}` : ''}
       </div>
     `;
   } else if (event.ev_type === 'kodi-movie') {
@@ -940,6 +951,7 @@ async function executeSearch() {
           params.append('ev_type', 'kindle-book');
           params.append('ev_type', 'tolino-book');
           params.append('ev_type', 'pocketbook-book');
+          params.append('ev_type', 'calibre-book');
         } else {
           params.append('ev_type', t);
         }
@@ -1226,6 +1238,7 @@ async function renderStatsView(container) {
           'tolino-book': '#a855f7',
           'pocketbook-highlight': '#ec4899',
           'pocketbook-book': '#f43f5e',
+          'calibre-book': '#d946ef',
           'kodi-movie': '#06b6d4',
           'kodi-tvshow': '#0ea5e9',
           'photo': '#f472b6',
@@ -1382,6 +1395,7 @@ function drawDonutChart(canvas, data) {
     'tolino-book': '#a855f7',
     'pocketbook-highlight': '#ec4899',
     'pocketbook-book': '#f43f5e',
+    'calibre-book': '#d946ef',
     'kodi-movie': '#06b6d4',
     'kodi-tvshow': '#0ea5e9',
     'photo': '#f472b6',
