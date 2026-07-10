@@ -11,3 +11,8 @@ db_path = "biograph.db" # path to the SQLite database file
 enabled  = false
 certfile = ""            # path to TLS certificate (PEM)
 keyfile  = ""            # path to TLS private key (PEM)
+
+[resources]
+# Define machine-specific paths here to resolve relative URIs
+# photos = "/path/to/my/photos"
+# ebooks = "/path/to/my/ebooks"

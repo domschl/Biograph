@@ -83,6 +83,8 @@ All endpoints (except `GET /health`) require a `Authorization: Bearer <token>` h
 | `POST` | `/events/` | Create one event |
 | `POST` | `/events/batch` | Bulk insert |
 | `GET` | `/events/` | List / search events |
+| `GET` | `/events/export` | Stream events in NDJSON format (ordered by `update_id` ASC) |
+| `POST` | `/events/import` | Import events (NDJSON stream) performing upserts |
 | `GET` | `/events/{id}` | Get a single event |
 | `PATCH` | `/events/{id}` | Update tags or summary |
 | `DELETE` | `/events/{id}` | Soft-delete an event |
@@ -99,6 +101,9 @@ All endpoints (except `GET /health`) require a `Authorization: Bearer <token>` h
 | `source_app` | str | Filter by app |
 | `q` | str | Full-text search |
 | `tags` | str (repeatable) | Events with ALL listed tags |
+| `since_update_id` | int | Filter events with `update_id` greater than this value |
+| `include_deleted` | bool | Include soft-deleted events (default false) |
+| `resource_uri` | str | Filter events by exact resource URI |
 | `limit` | int (1–1000, default 100) | Page size |
 | `offset` | int (default 0) | Pagination offset |
 
@@ -162,7 +167,15 @@ token = "change-me"              # Authorization token to connect to the backend
 # history_file = "~/.zsh_history" # Path to your zsh history file
 # state_dir    = "~/.local/share/biograph" # Directory to save sensor state and buffer
 # max_age_days = 30              # On first run, import history from last N days (default: 30)
+
+[resources]
+# photos = "/home/user/Pictures"  # Local path to resolve {photos}/... URIs
+# ebooks = "/home/user/Books"     # Local path to resolve {ebooks}/... URIs
 ```
+
+### Resource URIs & Placeholders
+
+Events can link to local files using machine-independent relative URIs (e.g. `{photos}/Album 1/Photo.jpg`). Local clients resolve these dynamically by replacing the placeholder key (`photos`) with the absolute path defined in the `[resources]` section of `config.toml`.
 
 ---
 
@@ -382,7 +395,10 @@ bio export backup.ndjson
 # Export events in a specific time range
 bio export backup.ndjson --from 2026-01-01T00:00:00 --to 2026-06-30T23:59:59
 
-# Ingest an NDJSON dump
+# Export incrementally since a specific update_id mark, including deleted events
+bio export diff.ndjson --since 123 --include-deleted
+
+# Ingest an NDJSON dump (performs upserts for existing IDs/remote_ids)
 bio import backup.ndjson
 
 # Create a timestamped backup copy of your database

@@ -510,4 +510,188 @@ async def test_calibre_deduplication_batch(client: AsyncClient) -> None:
     assert r_list.json()["total"] == 2
 
 
+@pytest.mark.asyncio
+async def test_update_id_assigned_on_create(client: AsyncClient) -> None:
+    # Create first event
+    ev1 = await _create(client, content={"text": "First"})
+    assert ev1["update_id"] is not None
+    
+    # Create second event
+    ev2 = await _create(client, content={"text": "Second"})
+    assert ev2["update_id"] > ev1["update_id"]
+
+
+@pytest.mark.asyncio
+async def test_update_id_changed_on_update(client: AsyncClient) -> None:
+    ev = await _create(client, content={"text": "Original"})
+    orig_update_id = ev["update_id"]
+    
+    # Modify event via PATCH
+    r = await client.patch(f"/events/{ev['id']}", json={"summary": "New Summary"})
+    assert r.status_code == 200
+    updated = r.json()
+    assert updated["update_id"] > orig_update_id
+    assert updated["summary"] == "New Summary"
+
+
+@pytest.mark.asyncio
+async def test_update_id_changed_on_delete(client: AsyncClient) -> None:
+    ev = await _create(client, content={"text": "To Delete"})
+    orig_update_id = ev["update_id"]
+    
+    # Delete event
+    r = await client.delete(f"/events/{ev['id']}")
+    assert r.status_code == 204
+    
+    # Check that query with include_deleted shows the updated update_id
+    r_list = await client.get("/events/", params={"include_deleted": True})
+    assert r_list.status_code == 200
+    events = r_list.json()["items"]
+    deleted_ev = next(e for e in events if e["id"] == ev["id"])
+    assert deleted_ev["deleted_at"] is not None
+    assert deleted_ev["update_id"] > orig_update_id
+
+
+@pytest.mark.asyncio
+async def test_export_since_update_id(client: AsyncClient) -> None:
+    import json
+    ev1 = await _create(client, content={"text": "One"})
+    ev2 = await _create(client, content={"text": "Two"})
+    
+    # Export without since_update_id
+    r = await client.get("/events/export")
+    assert r.status_code == 200
+    lines = [line for line in r.text.split("\n") if line]
+    assert len(lines) >= 2
+    
+    # Export since ev1's update_id
+    r_since = await client.get("/events/export", params={"since_update_id": ev1["update_id"]})
+    assert r_since.status_code == 200
+    lines_since = [line for line in r_since.text.split("\n") if line]
+    # Should contain ev2, but not ev1
+    events_since = [json.loads(line) for line in lines_since]
+    assert any(e["id"] == ev2["id"] for e in events_since)
+    assert not any(e["id"] == ev1["id"] for e in events_since)
+
+
+@pytest.mark.asyncio
+async def test_import_upserts_and_preserves(client: AsyncClient) -> None:
+    import json
+    # 1. Create a dummy event, then delete it locally to test deletion import
+    ev_to_delete = await _create(client, content={"text": "ToDelete"})
+    await client.delete(f"/events/{ev_to_delete['id']}")
+    
+    # Fetch its deleted state
+    r_list = await client.get("/events/", params={"include_deleted": True})
+    deleted_ev_data = next(e for e in r_list.json()["items"] if e["id"] == ev_to_delete["id"])
+    
+    # Create another event to test update
+    ev_to_update = await _create(client, content={"text": "ToUpdate"})
+    
+    # Prepare export data (NDJSON lines) representing:
+    # - A new event with specific ID
+    # - An update to ev_to_update
+    # - The deleted status for ev_to_delete
+    import_lines = [
+        json.dumps({
+            "id": 9999,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "received_at": datetime.now(UTC).isoformat(),
+            "ev_type": "note",
+            "content": {"text": "Imported New"},
+            "tags": ["imported"],
+            "summary": "Imported Event",
+            "deleted_at": None,
+            "remote_id": "remote-9999",
+            "update_id": 9999
+        }),
+        json.dumps({
+            "id": ev_to_update["id"],
+            "timestamp": ev_to_update["timestamp"],
+            "received_at": ev_to_update["received_at"],
+            "ev_type": ev_to_update["ev_type"],
+            "content": {"text": "Updated Content"},
+            "tags": ["updated"],
+            "summary": "Updated Summary",
+            "deleted_at": None,
+            "remote_id": "remote-updated",
+            "update_id": ev_to_update["update_id"] + 100
+        }),
+        json.dumps(deleted_ev_data)
+    ]
+    
+    import_payload = "\n".join(import_lines) + "\n"
+    r_import = await client.post("/events/import", content=import_payload)
+    assert r_import.status_code == 201
+    assert r_import.json() == {"imported": 3}
+    
+    # Verify new event exists with id 9999 and correct fields
+    r_new = await client.get(f"/events/9999")
+    assert r_new.status_code == 200
+    assert r_new.json()["content"] == {"text": "Imported New"}
+    assert r_new.json()["remote_id"] == "remote-9999"
+    assert r_new.json()["update_id"] == 9999
+    
+    # Verify updated event has new content and updated tags
+    r_updated = await client.get(f"/events/{ev_to_update['id']}")
+    assert r_updated.status_code == 200
+    assert r_updated.json()["content"] == {"text": "Updated Content"}
+    assert r_updated.json()["tags"] == ["updated"]
+    assert r_updated.json()["summary"] == "Updated Summary"
+    
+    # Verify deleted event is still deleted
+    r_deleted_check = await client.get(f"/events/{ev_to_delete['id']}")
+    assert r_deleted_check.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_create_with_resource_uri(client: AsyncClient) -> None:
+    payload = _event_payload(
+        resource_uri="{photos}/Album 1/Photo 1.jpg"
+    )
+    r = await client.post("/events/", json=payload)
+    assert r.status_code == 201
+    data = r.json()
+    assert data["resource_uri"] == "{photos}/Album 1/Photo 1.jpg"
+
+
+@pytest.mark.asyncio
+async def test_query_by_resource_uri(client: AsyncClient) -> None:
+    uri = "{ebooks}/Dune.epub"
+    ev1 = await _create(client, resource_uri=uri)
+    ev2 = await _create(client, resource_uri="{photos}/test.jpg")
+    
+    # Query by resource_uri
+    r = await client.get("/events/", params={"resource_uri": uri})
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert len(items) == 1
+    assert items[0]["id"] == ev1["id"]
+    assert items[0]["resource_uri"] == uri
+
+
+@pytest.mark.asyncio
+async def test_import_export_resource_uri(client: AsyncClient) -> None:
+    import json
+    uri = "{ebooks}/Hobbit.epub"
+    ev = await _create(client, resource_uri=uri)
+    
+    # Export
+    r_exp = await client.get("/events/export")
+    assert r_exp.status_code == 200
+    lines = [line for line in r_exp.text.split("\n") if line]
+    exported_ev = next(json.loads(line) for line in lines if json.loads(line)["id"] == ev["id"])
+    assert exported_ev["resource_uri"] == uri
+    
+    # Modify locally via import
+    exported_ev["resource_uri"] = "{ebooks}/Hobbit_New.epub"
+    r_imp = await client.post("/events/import", content=json.dumps(exported_ev) + "\n")
+    assert r_imp.status_code == 201
+    
+    # Verify import update took effect
+    r_get = await client.get(f"/events/{ev['id']}")
+    assert r_get.status_code == 200
+    assert r_get.json()["resource_uri"] == "{ebooks}/Hobbit_New.epub"
+
+
 

@@ -97,6 +97,19 @@ def _load_config() -> dict[str, Any]:
     return {}
 
 
+def resolve_resource_uri(uri: str | None, config: dict[str, Any]) -> str | None:
+    if not uri:
+        return None
+    if uri.startswith("{") and "}" in uri:
+        end_idx = uri.index("}")
+        placeholder = uri[1:end_idx]
+        base_path = config.get("resources", {}).get(placeholder)
+        if base_path:
+            relative_part = uri[end_idx + 1:].lstrip("/")
+            return str(Path(base_path) / relative_part)
+    return uri
+
+
 def _source_host(config: dict[str, Any]) -> str:
     return (
         config.get("cli", {}).get("source_host")
@@ -313,6 +326,13 @@ def search(
         )
         if len(summary) > 70:
             summary = summary[:67] + "…"
+            
+        if item.get("resource_uri"):
+            resolved = resolve_resource_uri(item["resource_uri"], config)
+            summary += f"\n[dim]Resource: {item['resource_uri']}[/dim]"
+            if resolved and resolved != item["resource_uri"]:
+                summary += f"\n[dim]↳ Local: {resolved}[/dim]"
+                
         table.add_row(str(item["id"]), ts, item["ev_type"], tag_str, summary)
 
     console.print(table)
@@ -1390,13 +1410,25 @@ def export(
         None, "--to",
         help="End date/time (ISO 8601).",
     ),
+    since_update_id: int | None = typer.Option(
+        None, "--since",
+        help="Export events with an update_id greater than this value.",
+    ),
+    include_deleted: bool = typer.Option(
+        False, "--include-deleted",
+        help="Include soft-deleted events in the export.",
+    ),
 ) -> None:
-    """Export all events to an NDJSON file."""
+    """Export events to an NDJSON file."""
     params = {}
     if from_date:
         params["from"] = from_date
     if to_date:
         params["to"] = to_date
+    if since_update_id is not None:
+        params["since_update_id"] = since_update_id
+    if include_deleted:
+        params["include_deleted"] = "true"
         
     config = _load_config()
     with _http_client(config) as http:

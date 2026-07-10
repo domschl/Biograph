@@ -42,6 +42,14 @@ def _normalize_dt(dt: datetime) -> datetime:
 # ---------------------------------------------------------------------------
 
 
+async def _get_next_update_id(session: AsyncSession) -> int:
+    """Query the database for the current maximum update_id and return the next sequential integer."""
+    stmt = select(func.max(Event.update_id))
+    result = await session.execute(stmt)
+    max_id = result.scalar()
+    return (max_id or 0) + 1
+
+
 @router.post("/", response_model=EventRead, status_code=status.HTTP_201_CREATED)
 async def create_event(
     body: EventCreate,
@@ -82,6 +90,7 @@ async def create_event(
             if existing:
                 return EventRead.from_event(existing)
 
+    next_update_id = await _get_next_update_id(session)
     event = Event(
         timestamp=body.timestamp,
         received_at=datetime.now(UTC),
@@ -92,6 +101,8 @@ async def create_event(
         tags=json.dumps(body.tags),
         summary=body.summary,
         remote_id=body.remote_id,
+        update_id=next_update_id,
+        resource_uri=body.resource_uri,
     )
     session.add(event)
     await session.commit()
@@ -169,6 +180,7 @@ async def create_events_batch(
                 except Exception:
                     pass
 
+    next_update_id = await _get_next_update_id(session)
     events_to_insert = []
     response_events = []
 
@@ -197,6 +209,8 @@ async def create_events_batch(
                     tags=json.dumps(e.tags),
                     summary=e.summary,
                     remote_id=e.remote_id,
+                    update_id=next_update_id + len(events_to_insert),
+                    resource_uri=e.resource_uri,
                 )
                 events_to_insert.append(new_event)
                 response_events.append(new_event)
@@ -224,6 +238,8 @@ async def create_events_batch(
                     tags=json.dumps(e.tags),
                     summary=e.summary,
                     remote_id=e.remote_id,
+                    update_id=next_update_id + len(events_to_insert),
+                    resource_uri=e.resource_uri,
                 )
                 events_to_insert.append(new_event)
                 response_events.append(new_event)
@@ -256,6 +272,8 @@ async def create_events_batch(
                     tags=json.dumps(e.tags),
                     summary=e.summary,
                     remote_id=e.remote_id,
+                    update_id=next_update_id + len(events_to_insert),
+                    resource_uri=e.resource_uri,
                 )
                 events_to_insert.append(new_event)
                 response_events.append(new_event)
@@ -270,6 +288,8 @@ async def create_events_batch(
                 tags=json.dumps(e.tags),
                 summary=e.summary,
                 remote_id=e.remote_id,
+                update_id=next_update_id + len(events_to_insert),
+                resource_uri=e.resource_uri,
             )
             events_to_insert.append(new_event)
             response_events.append(new_event)
@@ -299,6 +319,9 @@ async def list_events(
     source_app: str | None = Query(default=None),
     q: str | None = Query(default=None),
     tags: list[str] | None = Query(default=None),
+    since_update_id: int | None = Query(default=None),
+    include_deleted: bool = Query(default=False),
+    resource_uri: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
 ) -> EventList:
@@ -307,7 +330,9 @@ async def list_events(
     Results are ordered newest-first (``timestamp DESC``).
     Pagination is offset-based via ``limit`` and ``offset``.
     """
-    base = select(Event).where(Event.deleted_at.is_(None))
+    base = select(Event)
+    if not include_deleted:
+        base = base.where(Event.deleted_at.is_(None))
 
     if from_:
         base = base.where(Event.timestamp >= from_)
@@ -344,6 +369,10 @@ async def list_events(
         # All listed tags must be present (AND semantics)
         for tag in tags:
             base = base.where(Event.tags.like(f'%"{tag}"%'))
+    if since_update_id is not None:
+        base = base.where(Event.update_id > since_update_id)
+    if resource_uri:
+        base = base.where(Event.resource_uri == resource_uri)
 
     # Total count (before pagination)
     count_stmt = select(func.count()).select_from(base.subquery())
@@ -371,14 +400,20 @@ async def export_events(
     session: Session,
     from_: datetime | None = Query(default=None, alias="from"),
     to: datetime | None = Query(default=None),
+    since_update_id: int | None = Query(default=None),
+    include_deleted: bool = Query(default=False),
 ) -> StreamingResponse:
-    """Stream all non-deleted events in NDJSON format (ordered oldest-first)."""
+    """Stream events in NDJSON format (ordered by update_id asc)."""
     async def event_generator():
-        stmt = select(Event).where(Event.deleted_at.is_(None)).order_by(Event.timestamp.asc())
+        stmt = select(Event).order_by(Event.update_id.asc())
+        if not include_deleted:
+            stmt = stmt.where(Event.deleted_at.is_(None))
         if from_:
             stmt = stmt.where(Event.timestamp >= from_)
         if to:
             stmt = stmt.where(Event.timestamp <= to)
+        if since_update_id is not None:
+            stmt = stmt.where(Event.update_id > since_update_id)
             
         result = await session.execute(stmt)
         for row in result.scalars():
@@ -394,10 +429,11 @@ async def import_events(
     _: Authenticated,
     session: Session,
 ) -> dict[str, int]:
-    """Import events from an NDJSON stream."""
+    """Import events from an NDJSON stream, performing upsert by ID or remote_id."""
     count = 0
     now = datetime.now(UTC)
     buffer = ""
+    next_update_id = await _get_next_update_id(session)
     
     async for chunk in request.stream():
         buffer += chunk.decode("utf-8")
@@ -413,17 +449,64 @@ async def import_events(
                 if not isinstance(tags_list, list):
                     tags_list = [tags_list]
                 
-                event = Event(
-                    timestamp=ts,
-                    received_at=now,
-                    ev_type=data["ev_type"],
-                    source_host=data.get("source_host"),
-                    source_app=data.get("source_app"),
-                    content=json.dumps(data.get("content") or {}),
-                    tags=json.dumps(tags_list),
-                    summary=data.get("summary"),
-                )
-                session.add(event)
+                # Try finding existing record by ID or remote_id
+                existing = None
+                if "id" in data and data["id"] is not None:
+                    existing = await session.get(Event, data["id"])
+                
+                if not existing and data.get("remote_id"):
+                    stmt = select(Event).where(
+                        Event.remote_id == data["remote_id"],
+                        Event.ev_type == data["ev_type"],
+                    )
+                    existing = (await session.execute(stmt)).scalars().first()
+                
+                if existing:
+                    # Update fields
+                    existing.timestamp = ts
+                    if "received_at" in data:
+                        existing.received_at = datetime.fromisoformat(data["received_at"])
+                    existing.ev_type = data["ev_type"]
+                    existing.source_host = data.get("source_host")
+                    existing.source_app = data.get("source_app")
+                    existing.content = json.dumps(data.get("content") or {})
+                    existing.tags = json.dumps(tags_list)
+                    existing.summary = data.get("summary")
+                    if "deleted_at" in data and data["deleted_at"] is not None:
+                        existing.deleted_at = datetime.fromisoformat(data["deleted_at"])
+                    else:
+                        existing.deleted_at = None
+                    existing.remote_id = data.get("remote_id")
+                    existing.resource_uri = data.get("resource_uri")
+                    
+                    if "update_id" in data and data["update_id"] is not None:
+                        existing.update_id = data["update_id"]
+                    else:
+                        existing.update_id = next_update_id
+                        next_update_id += 1
+                        
+                    session.add(existing)
+                else:
+                    event = Event(
+                        id=data.get("id"),
+                        timestamp=ts,
+                        received_at=datetime.fromisoformat(data["received_at"]) if "received_at" in data else now,
+                        ev_type=data["ev_type"],
+                        source_host=data.get("source_host"),
+                        source_app=data.get("source_app"),
+                        content=json.dumps(data.get("content") or {}),
+                        tags=json.dumps(tags_list),
+                        summary=data.get("summary"),
+                        deleted_at=datetime.fromisoformat(data["deleted_at"]) if "deleted_at" in data and data["deleted_at"] is not None else None,
+                        remote_id=data.get("remote_id"),
+                        resource_uri=data.get("resource_uri"),
+                    )
+                    if "update_id" in data and data["update_id"] is not None:
+                        event.update_id = data["update_id"]
+                    else:
+                        event.update_id = next_update_id
+                        next_update_id += 1
+                    session.add(event)
                 count += 1
             except Exception as e:
                 raise HTTPException(
@@ -472,6 +555,9 @@ async def update_event(
     if body.summary is not None:
         event.summary = body.summary
 
+    next_update_id = await _get_next_update_id(session)
+    event.update_id = next_update_id
+
     session.add(event)
     await session.commit()
     await session.refresh(event)
@@ -490,5 +576,8 @@ async def delete_event(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
 
     event.deleted_at = datetime.now(UTC)
+    next_update_id = await _get_next_update_id(session)
+    event.update_id = next_update_id
+
     session.add(event)
     await session.commit()

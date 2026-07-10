@@ -201,3 +201,40 @@ def test_search_no_results():
     result = runner.invoke(app, ["search", "nothing"])
     assert result.exit_code == 0
     assert "No results" in result.output
+
+
+@respx.mock
+def test_export_options(tmp_path):
+    output_file = tmp_path / "export.ndjson"
+    route = respx.get(f"{FAKE_URL}/events/export").mock(
+        return_value=httpx.Response(
+            200,
+            text='{"id": 1, "ev_type": "note", "timestamp": "2024-06-17T10:00:00+00:00", "content": {"text": "hello"}}\n'
+        )
+    )
+    result = runner.invoke(app, ["export", str(output_file), "--since", "10", "--include-deleted"])
+    assert result.exit_code == 0
+    assert output_file.exists()
+    assert "Successfully exported events" in result.output
+    
+    # Check that query parameters were sent correctly
+    url = route.calls.last.request.url
+    assert b"since_update_id=10" in url.query
+    assert b"include_deleted=true" in url.query
+
+
+def test_resolve_resource_uri():
+    from biograph_cli.bio import resolve_resource_uri
+    config = {
+        "resources": {
+            "photos": "/home/user/Pictures",
+            "ebooks": "/home/user/Books"
+        }
+    }
+    
+    assert resolve_resource_uri(None, config) is None
+    assert resolve_resource_uri("http://example.com", config) == "http://example.com"
+    assert resolve_resource_uri("/absolute/path.jpg", config) == "/absolute/path.jpg"
+    assert resolve_resource_uri("{photos}/Album 1/Photo.jpg", config) == "/home/user/Pictures/Album 1/Photo.jpg"
+    assert resolve_resource_uri("{ebooks}/Dune.epub", config) == "/home/user/Books/Dune.epub"
+    assert resolve_resource_uri("{unknown}/test.txt", config) == "{unknown}/test.txt"
