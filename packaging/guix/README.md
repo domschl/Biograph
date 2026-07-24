@@ -2,7 +2,7 @@
 
 GNU Guix does not use systemd. Instead, it uses **GNU Shepherd** as its service manager/init system. For managing user-level daemons like the zsh history sensor, Guix provides **Guix Home** (a declarative configuration system for user environments) or direct configuration of a user-level **GNU Shepherd** instance.
 
-The package and service definition is provided in [biograph.scm](file:///home/dsc/Codeberg/Biograph/packaging/guix/biograph.scm).
+The package and service definition is provided in [biograph.scm](file:///home/dsc/gith/domschl/Biograph/packaging/guix/biograph.scm).
 
 ---
 
@@ -27,7 +27,7 @@ guix package -f packaging/guix/biograph.scm
 
 ## 2. Deploying with Guix Home (Declarative)
 
-If you manage your user environment using **Guix Home** (configured via `home-configuration.scm` and activated using `guix home reconfigure`), you can import and extend the service type defined in [biograph.scm](file:///home/dsc/Codeberg/Biograph/packaging/guix/biograph.scm).
+If you manage your user environment using **Guix Home** (configured via `home-configuration.scm` and activated using `guix home reconfigure`), you can import and extend the service type defined in [biograph.scm](file:///home/dsc/gith/domschl/Biograph/packaging/guix/biograph.scm).
 
 ### Example `home-configuration.scm`
 Here is how you can use the service in your Guix Home configuration:

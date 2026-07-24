@@ -18,7 +18,7 @@
     (name "biograph-sensor-zsh")
     (version "0.1.1")
     (source (git-reference
-             (url "https://codeberg.org/domschl/Biograph.git")
+             (url "https://github.com/domschl/Biograph.git")
              (commit (string-append "v" version)))) ; Adjust to specific commit/tag if needed
     (build-system python-build-system)
     (arguments
@@ -34,7 +34,7 @@
     (propagated-inputs
      (list python-watchdog
            python-httpx))
-    (home-page "https://codeberg.org/domschl/Biograph")
+    (home-page "https://github.com/domschl/Biograph")
     (synopsis "Biograph zsh history sensor")
     (description
      "Watches @file{~/.zsh_history} and sends shell-cmd events to the Biograph backend.")

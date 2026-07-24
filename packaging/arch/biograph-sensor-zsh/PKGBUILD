@@ -1,14 +1,14 @@
-# Maintainer: Dominik Schloesser <domschl@codeberg.org>
+# Maintainer: Dominik Schloesser
 pkgname=biograph-sensor-zsh
 pkgver=0.1.1
 pkgrel=1
 pkgdesc="Biograph zsh history sensor — watches ~/.zsh_history and sends events"
 arch=('any')
-url="https://codeberg.org/domschl/biograph"
+url="https://github.com/domschl/Biograph"
 license=('MIT')
 depends=('python' 'python-watchdog' 'python-httpx')
 makedepends=('python-build' 'python-installer' 'python-hatchling' 'python-wheel' 'git')
-source=("git+https://codeberg.org/domschl/biograph.git")
+source=("git+https://github.com/domschl/Biograph.git")
 sha256sums=('SKIP')
 
 pkgver() {

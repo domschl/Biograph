@@ -1,6 +1,6 @@
 [Unit]
 Description=Biograph zsh history sensor
-Documentation=https://codeberg.org/yourname/biograph
+Documentation=https://github.com/domschl/Biograph
 After=network-online.target
 Wants=network-online.target
 
