@@ -15,23 +15,23 @@ backup=('etc/biograph/config.toml')
 install=biograph-backend.install
 
 pkgver() {
-  cd "${srcdir}/biograph/backend"
+  cd "${srcdir}/Biograph/backend"
   grep -m 1 "^version" pyproject.toml | cut -d '"' -f 2
 }
 
 build() {
-  cd "${srcdir}/biograph/backend"
+  cd "${srcdir}/Biograph/backend"
   rm -rf dist
   /usr/bin/python -m build --wheel --no-isolation
 }
 
 package() {
-  cd "${srcdir}/biograph/backend"
+  cd "${srcdir}/Biograph/backend"
   /usr/bin/python -m installer --destdir="${pkgdir}" dist/*.whl
 
   # Install web client static assets
   install -d "${pkgdir}/usr/share/biograph/web-client"
-  cp -r "${srcdir}/biograph/web-client/"* "${pkgdir}/usr/share/biograph/web-client/"
+  cp -r "${srcdir}/Biograph/web-client/"* "${pkgdir}/usr/share/biograph/web-client/"
 
   # Install systemd service and sysusers configuration
   install -Dm644 biograph-backend.service "${pkgdir}/usr/lib/systemd/system/biograph-backend.service"
