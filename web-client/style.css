@@ -45,6 +45,9 @@
   --ev-pocketbook-highlight: #ec4899;
   --ev-pocketbook-book:      #f43f5e;
   --ev-calibre-book:         #d946ef;
+  --ev-koreader-progress:    #a855f7;
+  --ev-koreader-book:        #a855f7;
+  --ev-kosync-progress:      #a855f7;
   --ev-kodi-movie:       #06b6d4;
   --ev-kodi-tvshow:      #0ea5e9;
   --ev-photo:            #f472b6;
@@ -283,6 +286,9 @@ svg  { display: block; }
 .ev-badge-pocketbook-highlight { background: rgba(236,72,153,.13); color: var(--ev-pocketbook-highlight); }
 .ev-badge-pocketbook-book      { background: rgba(244,63,94,.13); color: var(--ev-pocketbook-book); }
 .ev-badge-calibre-book         { background: rgba(217,70,239,.13); color: var(--ev-calibre-book); }
+.ev-badge-koreader-progress    { background: rgba(168,85,247,.13); color: var(--ev-koreader-progress); }
+.ev-badge-koreader-book        { background: rgba(168,85,247,.13); color: var(--ev-koreader-book); }
+.ev-badge-kosync-progress      { background: rgba(168,85,247,.13); color: var(--ev-kosync-progress); }
 .ev-badge-kodi-movie       { background: rgba(6,182,212,.13); color: var(--ev-kodi-movie); }
 .ev-badge-kodi-tvshow      { background: rgba(14,165,233,.13); color: var(--ev-kodi-tvshow); }
 .ev-badge-photo            { background: rgba(244,114,182,.13); color: var(--ev-photo); }

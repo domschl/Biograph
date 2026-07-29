@@ -187,7 +187,7 @@ function renderEventCard(event) {
   else if (isYoutubeMovie) badgeIcon = '🎬';
   else if (event.ev_type === 'web-visit') badgeIcon = '🌐';
   else if (event.ev_type === 'kindle-highlight' || event.ev_type === 'tolino-highlight' || event.ev_type === 'pocketbook-highlight') badgeIcon = '“';
-  else if (event.ev_type === 'kindle-book' || event.ev_type === 'tolino-book' || event.ev_type === 'pocketbook-book' || event.ev_type === 'calibre-book') badgeIcon = '📖';
+  else if (event.ev_type === 'kindle-book' || event.ev_type === 'tolino-book' || event.ev_type === 'pocketbook-book' || event.ev_type === 'calibre-book' || event.ev_type === 'koreader-progress' || event.ev_type === 'koreader-book' || event.ev_type === 'kosync-progress') badgeIcon = '📖';
   else if (event.ev_type === 'kodi-movie') badgeIcon = '🎬';
   else if (event.ev_type === 'kodi-tvshow') badgeIcon = '📺';
   else if (event.ev_type === 'photo') badgeIcon = '📷';
@@ -290,16 +290,28 @@ function renderEventCard(event) {
         ${c.location ? `· Location ${c.location}` : ''}
       </div>
     `;
-  } else if (event.ev_type === 'kindle-book' || event.ev_type === 'tolino-book' || event.ev_type === 'pocketbook-book') {
-    const isFinished = c.read_status === 2 || c.percent_read === 100;
-    const progressText = c.percent_read !== undefined && c.percent_read !== null ? `· Progress: ${c.percent_read}%` : '';
-    const statusText = isFinished ? 'Finished book:' : 'Started or read book:';
+  } else if (event.ev_type === 'kindle-book' || event.ev_type === 'tolino-book' || event.ev_type === 'pocketbook-book' || event.ev_type === 'koreader-progress' || event.ev_type === 'koreader-book' || event.ev_type === 'kosync-progress') {
+    const isFinished = c.read_status === 2 || c.percent_read === 100 || c.percentage === 1.0 || c.percentage === 100;
+    
+    let progressText = '';
+    if (c.percentage !== undefined && c.percentage !== null) {
+      const pctVal = c.percentage <= 1.0 ? (c.percentage * 100).toFixed(1) : c.percentage;
+      progressText = `· Progress: ${pctVal}%`;
+    } else if (c.percent_read !== undefined && c.percent_read !== null) {
+      progressText = `· Progress: ${c.percent_read}%`;
+    }
+
+    const title = c.filename || c.book_title || (c.document_hash ? `Document ${c.document_hash.substring(0, 10)}` : 'Unknown Book');
+    const authorText = c.author ? `by ${escapeHtml(c.author)}` : (c.user ? `user: ${escapeHtml(c.user)}` : '');
+    const statusText = isFinished ? 'Finished book:' : 'Reading progress on:';
+
     contentHtml = `
-      <div class="ev-title">${statusText} <strong>${escapeHtml(c.book_title || 'Unknown Book')}</strong></div>
+      <div class="ev-title">${statusText} <strong>${escapeHtml(title)}</strong></div>
       <div class="ev-book-meta">
-        by ${escapeHtml(c.author || 'Unknown')}
-        ${c.asin ? `· ASIN: ${escapeHtml(c.asin)}` : ''}
+        ${authorText}
+        ${c.device ? `· Device: ${escapeHtml(c.device)}` : ''}
         ${progressText}
+        ${c.progress ? `· Pos: ${escapeHtml(c.progress)}` : ''}
         ${c.last_read ? `· Last read: ${new Date(c.last_read).toLocaleDateString()}` : ''}
       </div>
     `;
@@ -952,6 +964,9 @@ async function executeSearch() {
           params.append('ev_type', 'tolino-book');
           params.append('ev_type', 'pocketbook-book');
           params.append('ev_type', 'calibre-book');
+          params.append('ev_type', 'koreader-progress');
+          params.append('ev_type', 'koreader-book');
+          params.append('ev_type', 'kosync-progress');
         } else {
           params.append('ev_type', t);
         }
@@ -1239,6 +1254,9 @@ async function renderStatsView(container) {
           'pocketbook-highlight': '#ec4899',
           'pocketbook-book': '#f43f5e',
           'calibre-book': '#d946ef',
+          'koreader-progress': '#a855f7',
+          'koreader-book': '#a855f7',
+          'kosync-progress': '#a855f7',
           'kodi-movie': '#06b6d4',
           'kodi-tvshow': '#0ea5e9',
           'photo': '#f472b6',
@@ -1396,6 +1414,9 @@ function drawDonutChart(canvas, data) {
     'pocketbook-highlight': '#ec4899',
     'pocketbook-book': '#f43f5e',
     'calibre-book': '#d946ef',
+    'koreader-progress': '#a855f7',
+    'koreader-book': '#a855f7',
+    'kosync-progress': '#a855f7',
     'kodi-movie': '#06b6d4',
     'kodi-tvshow': '#0ea5e9',
     'photo': '#f472b6',

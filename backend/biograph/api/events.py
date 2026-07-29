@@ -26,7 +26,7 @@ def is_ereader_event(ev_type: str) -> bool:
     """Check if the event type belongs to an EReader."""
     return any(
         ev_type.startswith(prefix)
-        for prefix in ("kindle-", "tolino-", "pocketbook-")
+        for prefix in ("kindle-", "tolino-", "pocketbook-", "koreader-", "kosync-")
     )
 
 
