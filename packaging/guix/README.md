@@ -1,6 +1,6 @@
-# Packaging and Deploying biograph-sensor-zsh on GNU Guix
+# Packaging and Deploying biograph-sensor-shell on GNU Guix
 
-GNU Guix does not use systemd. Instead, it uses **GNU Shepherd** as its service manager/init system. For managing user-level daemons like the zsh history sensor, Guix provides **Guix Home** (a declarative configuration system for user environments) or direct configuration of a user-level **GNU Shepherd** instance.
+GNU Guix does not use systemd. Instead, it uses **GNU Shepherd** as its service manager/init system. For managing user-level daemons like the shell history sensor, Guix provides **Guix Home** (a declarative configuration system for user environments) or direct configuration of a user-level **GNU Shepherd** instance.
 
 The package and service definition is provided in [biograph.scm](file:///home/dsc/gith/domschl/Biograph/packaging/guix/biograph.scm).
 
@@ -8,7 +8,7 @@ The package and service definition is provided in [biograph.scm](file:///home/ds
 
 ## 1. Guix Package Definition
 
-The package definition uses `python-build-system` to build the Python package under `sensors/zsh` with the Hatchling backend, propagating its dependencies (`python-watchdog` and `python-httpx`).
+The package definition uses `python-build-system` to build the Python package under `sensors/shell` with the Hatchling backend, propagating its dependencies (`python-watchdog` and `python-httpx`).
 
 ### How to Build the Package Locally
 You can build the package directly from the root of the Biograph repository using:
@@ -42,11 +42,11 @@ Here is how you can use the service in your Guix Home configuration:
 (home-configuration
  (services
   (list
-   ;; Declare and configure the zsh sensor service
-   (service home-biograph-sensor-zsh-service-type
-            (home-biograph-sensor-zsh-configuration
+   ;; Declare and configure the unified shell sensor service
+   (service home-biograph-sensor-shell-service-type
+            (home-biograph-sensor-shell-configuration
              ;; Optionally override the package (e.g. to use a local build or channel version)
-             (package biograph-sensor-zsh)
+             (package biograph-sensor-shell)
              ;; Optionally provide a custom config path (defaults to ~/.config/biograph/config.toml)
              (config-file #f)))
    
@@ -66,55 +66,55 @@ Once reconfigured, the service is managed by Shepherd and starts automatically w
 
 ## 3. Deploying with GNU Shepherd (Imperative / User Service)
 
-If you are not using Guix Home (e.g., using Guix on a foreign distribution) but run a user-level GNU Shepherd instance (`shepherd` launched from your `.zprofile` or X session), you can configure the service directly in `~/.config/shepherd/init.scm`.
+If you are not using Guix Home (e.g., using Guix on a foreign distribution) but run a user-level GNU Shepherd instance (`shepherd` launched from your `.profile` or X session), you can configure the service directly in `~/.config/shepherd/init.scm`.
 
 ### Example `~/.config/shepherd/init.scm`
 Add the following configuration to define the service:
 
 ```scheme
-(define biograph-sensor-zsh
+(define biograph-sensor-shell
   (shepherd-service
-   (provision '(biograph-sensor-zsh))
-   (documentation "Biograph zsh history sensor daemon")
+   (provision '(biograph-sensor-shell biograph-sensor-zsh))
+   (documentation "Biograph unified shell history sensor daemon (bash & zsh)")
    (requirement '())
    (start (make-forkexec-constructor
            ;; Points to the executable in your profile
-           '("biograph-sensor-zsh")
+           '("biograph-sensor-shell")
            #:environment-variables '("PYTHONUNBUFFERED=1")
            ;; Log files can be redirected to a dedicated file
-           #:log-file (string-append (getenv "HOME") "/.local/share/biograph/sensor-zsh.log")))
+           #:log-file (string-append (getenv "HOME") "/.local/share/biograph/sensor-shell.log")))
    (stop (make-kill-destructor))
    (respawn? #t)))
 
 ;; Register the service with Shepherd
-(register-services (list biograph-sensor-zsh))
+(register-services (list biograph-sensor-shell))
 
 ;; Start it immediately on daemon launch
-(start-service biograph-sensor-zsh)
+(start-service biograph-sensor-shell)
 ```
 
 ---
 
 ## 4. Managing the Sensor Service
 
-Once deployed, you can use the standard Shepherd client command `herd` to manage the zsh sensor daemon:
+Once deployed, you can use the standard Shepherd client command `herd` to manage the shell sensor daemon:
 
 *   **Check status:**
     ```bash
-    herd status biograph-sensor-zsh
+    herd status biograph-sensor-shell
     ```
 *   **Stop the sensor:**
     ```bash
-    herd stop biograph-sensor-zsh
+    herd stop biograph-sensor-shell
     ```
 *   **Start the sensor:**
     ```bash
-    herd start biograph-sensor-zsh
+    herd start biograph-sensor-shell
     ```
 *   **View logs:**
     *   If using the Shepherd direct setup, read the file:
         ```bash
-        tail -f ~/.local/share/biograph/sensor-zsh.log
+        tail -f ~/.local/share/biograph/sensor-shell.log
         ```
     *   If using Guix Home (without custom log path), standard output goes to the main shepherd log:
         ```bash

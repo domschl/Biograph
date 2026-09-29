@@ -74,8 +74,9 @@ token = "change-me"              # Authorization token
 [cli]
 # source_host = "my-hostname"    # Optional override for the hostname reported by bio CLI
 
-[zsh]
-# history_file = "~/.zsh_history" # Path to zsh history file
+[shell]
+# bash_history = "~/.bash_history" # Path to bash history file
+# zsh_history  = "~/.zsh_history"  # Path to zsh history file
 # state_dir    = "~/.local/share/biograph" # Directory for sensor state and buffer
 # max_age_days = 30              # On first run, import history from last N days
 """

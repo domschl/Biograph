@@ -458,11 +458,11 @@ function preprocessEvents(events) {
   }
   for (const event of events) {
     const isYoutubeMovie = event.ev_type === 'web-visit' && event.content && event.content.url && event.content.url.includes('youtube.com/watch?v=');
-    const isZshCmd = event.ev_type === 'shell-cmd' && event.source_app === 'zsh';
+    const isShellCmd = event.ev_type === 'shell-cmd';
     const isWebVisit = event.ev_type === 'web-visit' && !isYoutubeMovie;
     
-    // Close Zsh group if we hit any non-zsh-command
-    if (!isZshCmd && currentZshGroup) {
+    // Close Shell group if we hit any non-shell-command
+    if (!isShellCmd && currentZshGroup) {
       merged.push(currentZshGroup);
       currentZshGroup = null;
     }
@@ -473,12 +473,13 @@ function preprocessEvents(events) {
       currentWebGroup = null;
     }
     
-    if (isZshCmd) {
+    if (isShellCmd) {
       if (currentZshGroup) {
         const timeDiffMs = Math.abs(new Date(event.timestamp) - new Date(currentZshGroup.timestamp));
         const sameHost = event.source_host === currentZshGroup.source_host;
+        const sameApp = event.source_app === currentZshGroup.source_app;
         
-        if (sameHost && timeDiffMs <= 5 * 60 * 1000) {
+        if (sameHost && sameApp && timeDiffMs <= 5 * 60 * 1000) {
           currentZshGroup.commands.push({
             cmd: event.content.cmd,
             cwd: event.content.cwd,

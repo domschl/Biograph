@@ -10,7 +10,7 @@
 biograph/
 ├── backend/          — FastAPI + SQLite backend
 ├── sensors/
-│   ├── zsh/          — zsh history sensor (Linux + macOS)
+│   ├── shell/        — unified bash & zsh history sensor (Linux + macOS)
 │   ├── kindle/       — Amazon Kindle clippings sensor
 │   ├── kodi/         — Kodi movie playback sensor (service add-on)
 │   └── cli/          — bio CLI logger and query tool (includes Tolino support)
@@ -139,7 +139,7 @@ uv run pytest
 
 ## Client and Sensor Configuration
 
-All clients (`bio` CLI) and sensors (like the `zsh` history sensor) search for their settings in the following paths (first found wins):
+All clients (`bio` CLI) and sensors (like the unified shell history sensor) search for their settings in the following paths (first found wins):
 1. The file pointed to by the `BIOGRAPH_CONFIG` environment variable.
 2. `config.toml` in the current working directory.
 3. `~/.config/biograph/config.toml` (recommended for user-level installations).
@@ -163,8 +163,9 @@ token = "change-me"              # Authorization token to connect to the backend
 [cli]
 # source_host = "laptop"         # Optional override for the hostname reported by bio CLI
 
-[zsh]
-# history_file = "~/.zsh_history" # Path to your zsh history file
+[shell]
+# bash_history = "~/.bash_history" # Path to bash history file
+# zsh_history  = "~/.zsh_history"  # Path to zsh history file
 # state_dir    = "~/.local/share/biograph" # Directory to save sensor state and buffer
 # max_age_days = 30              # On first run, import history from last N days (default: 30)
 
@@ -179,57 +180,117 @@ Events can link to local files using machine-independent relative URIs (e.g. `{p
 
 ---
 
-## zsh History Sensor
+## Unified Shell History Sensor (Bash & Zsh)
 
-Automatically journals shell commands from `~/.zsh_history` (EXTENDED_HISTORY
-format) as `shell-cmd` events.
+Automatically journals shell commands from `~/.bash_history` and `~/.zsh_history` as `shell-cmd` events to the Biograph backend.
+
+The sensor auto-detects whichever shell history files exist on your machine and watches them simultaneously in a single process.
+
+### Shell Configuration
+
+To enable accurate timestamps and immediate history logging:
+
+**For Bash** (`~/.bashrc`):
+```bash
+# Record timestamps in bash history
+export HISTTIMEFORMAT="%F %T "
+
+# Append history instead of overwriting
+shopt -s histappend
+
+# Append commands immediately so the sensor sees them live
+PROMPT_COMMAND="history -a; ${PROMPT_COMMAND:-}"
+```
+
+**For Zsh** (`~/.zshrc`):
+```zsh
+# Save timestamp and duration in EXTENDED_HISTORY format
+setopt EXTENDED_HISTORY
+
+# Append new history lines immediately to the history file
+setopt INC_APPEND_HISTORY
+```
 
 ### Install
 
 ```bash
-cd sensors/zsh
+cd sensors/shell
 uv sync
 ```
 
-*Note: `uv sync` installs the `biograph-sensor-zsh` executable into `.venv/bin/biograph-sensor-zsh` within the `sensors/zsh` directory.*
+*Note: `uv sync` installs the `biograph-sensor-shell` executable (and compatibility alias `biograph-sensor-zsh`) into `.venv/bin/` within the `sensors/shell` directory.*
 
 ### Run as a service
 
 **Linux (systemd user service)**
 1. Copy the service unit:
    ```bash
-   cp biograph-zsh.service ~/.config/systemd/user/
+   cp biograph-shell.service ~/.config/systemd/user/
    ```
-2. Edit `~/.config/systemd/user/biograph-zsh.service` to set `ExecStart` to the absolute path of the executable (e.g. `/home/user/Biograph/sensors/zsh/.venv/bin/biograph-sensor-zsh`).
+2. Edit `~/.config/systemd/user/biograph-shell.service` to set `ExecStart` to the absolute path of the executable (e.g. `/home/user/Biograph/sensors/shell/.venv/bin/biograph-sensor-shell`).
 3. Enable and start the service:
    ```bash
    systemctl --user daemon-reload
-   systemctl --user enable --now biograph-zsh
-   journalctl --user -fu biograph-zsh   # follow logs
+   systemctl --user enable --now biograph-shell
+   journalctl --user -fu biograph-shell   # follow logs
    ```
 
 **macOS (launchd user agent)**
 1. Copy the plist:
    ```bash
-   cp biograph-zsh.plist ~/Library/LaunchAgents/io.biograph.sensor.zsh.plist
+   cp biograph-shell.plist ~/Library/LaunchAgents/io.biograph.sensor.shell.plist
    ```
-2. Edit the plist file to set the absolute path of the executable (e.g. `/Users/user/Biograph/sensors/zsh/.venv/bin/biograph-sensor-zsh`).
+2. Edit the plist file to set the absolute path of the executable (e.g. `/Users/user/Biograph/sensors/shell/.venv/bin/biograph-sensor-shell`).
 3. Load the agent:
    ```bash
-   launchctl load -w ~/Library/LaunchAgents/io.biograph.sensor.zsh.plist
-   tail -f /tmp/biograph-zsh.log        # follow logs
+   launchctl load -w ~/Library/LaunchAgents/io.biograph.sensor.shell.plist
+   tail -f /tmp/biograph-shell.log        # follow logs
    ```
 
 ### Config
 
-Add a `[zsh]` section to `config.toml`:
+Add a `[shell]` section to `config.toml` (optional, defaults shown):
 
 ```toml
-[zsh]
-history_file  = "~/.zsh_history"  # default
-state_dir     = "~/.local/share/biograph"  # default
-max_age_days  = 30   # on first run, import history from the last N days
+[shell]
+bash_history = "~/.bash_history"          # default
+zsh_history  = "~/.zsh_history"           # default
+state_dir    = "~/.local/share/biograph"  # default
+max_age_days = 30                         # on first run, import history from last N days
 ```
+
+*(Note: If you have an existing `[zsh]` section in your `config.toml`, it is still read for backwards compatibility if `[shell]` is omitted.)*
+
+### Upgrading from the zsh sensor to the unified shell sensor
+
+If you were running the older `biograph-sensor-zsh` service:
+
+1. **Stop and disable the old service**:
+   * *Linux (systemd)*:
+     ```bash
+     systemctl --user stop biograph-zsh
+     systemctl --user disable biograph-zsh
+     rm -f ~/.config/systemd/user/biograph-zsh.service
+     ```
+   * *macOS (launchd)*:
+     ```bash
+     launchctl unload -w ~/Library/LaunchAgents/io.biograph.sensor.zsh.plist
+     rm -f ~/Library/LaunchAgents/io.biograph.sensor.zsh.plist
+     ```
+
+2. **Deploy the new unified service**:
+   * Install dependencies in `sensors/shell`:
+     ```bash
+     cd sensors/shell
+     uv sync
+     ```
+   * Set up systemd or launchd as shown above using `biograph-shell.service` or `biograph-shell.plist`.
+
+3. **Automatic State & Buffer Migration**:
+   * When `biograph-sensor-shell` starts, it automatically detects any existing `~/.local/share/biograph/zsh-state.json` and `zsh-buffer.json` and migrates them into `shell-state.json` and `shell-buffer.json`. No shell history positions or queued offline events are lost.
+
+4. **Update `config.toml` (optional)**:
+   * Rename `[zsh]` to `[shell]` in `~/.config/biograph/config.toml`.
 
 ---
 
@@ -418,7 +479,7 @@ Refer to the detailed **[TLS & HTTPS Setup Guide](docs/TLS.md)** for step-by-ste
 ## Implementation status
 
 - [x] **Phase 1** — Core backend (FastAPI, SQLite, auth, events API, stats, tests)
-- [x] **Phase 2** — zsh sensor (EXTENDED_HISTORY parser, buffer, retry, systemd/launchd) + `bio log` / `bio search` CLI
+- [x] **Phase 2** — Unified shell sensor (bash & zsh history parser, buffer, retry, systemd/launchd) + `bio log` / `bio search` CLI
 - [x] **Phase 3** — Web client v1 (Timeline, Search, Settings)
 - [x] **Phase 4** — Chrome/Chromium browser extension
 - [x] **Phase 5** — Kindle sensor + export/import

@@ -1,0 +1,45 @@
+# Maintainer: Dominik Schloesser
+pkgname=biograph-sensor-shell
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Biograph unified shell history sensor (bash & zsh) — watches history and sends events"
+arch=('any')
+url="https://github.com/domschl/Biograph"
+license=('MIT')
+depends=('python' 'python-watchdog' 'python-httpx')
+makedepends=('python-build' 'python-installer' 'python-hatchling' 'python-wheel' 'git')
+provides=('biograph-sensor-zsh')
+conflicts=('biograph-sensor-zsh')
+replaces=('biograph-sensor-zsh')
+source=("git+https://github.com/domschl/Biograph.git")
+sha256sums=('SKIP')
+
+_sync_local() {
+  if [[ -d "${startdir}/../../../sensors/shell" ]]; then
+    mkdir -p "${srcdir}/Biograph/sensors"
+    rm -rf "${srcdir}/Biograph/sensors/shell"
+    cp -r "${startdir}/../../../sensors/shell" "${srcdir}/Biograph/sensors/"
+  fi
+}
+
+pkgver() {
+  _sync_local
+  cd "${srcdir}/Biograph/sensors/shell"
+  grep -m 1 "^version" pyproject.toml | cut -d '"' -f 2
+}
+
+build() {
+  _sync_local
+  cd "${srcdir}/Biograph/sensors/shell"
+  rm -rf dist
+  /usr/bin/python -m build --wheel --no-isolation
+}
+
+package() {
+  cd "${srcdir}/Biograph/sensors/shell"
+  /usr/bin/python -m installer --destdir="${pkgdir}" dist/*.whl
+
+  # Customise the systemd user service to point to the system-wide executable rather than local path
+  sed -i 's|%h/.local/bin/biograph-sensor-shell|/usr/bin/biograph-sensor-shell|g' biograph-shell.service
+  install -Dm644 biograph-shell.service "${pkgdir}/usr/lib/systemd/user/biograph-shell.service"
+}
