@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS launchd user agent for the Biograph unified shell history sensor.
+
+  Install:
+    cp biograph-shell.plist ~/Library/LaunchAgents/io.biograph.sensor.shell.plist
+    launchctl load -w ~/Library/LaunchAgents/io.biograph.sensor.shell.plist
+
+  Adjust ProgramArguments to the full path of biograph-sensor-shell if it is
+  not on PATH when launchd runs (common when using uv or pyenv).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>io.biograph.sensor.shell</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- Replace with the absolute path if needed:
+             /Users/you/.local/bin/biograph-sensor-shell -->
+        <string>biograph-sensor-shell</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/biograph-shell.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/biograph-shell.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>
