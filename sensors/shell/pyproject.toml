@@ -1,6 +1,6 @@
 [project]
 name = "biograph-sensor-shell"
-version = "0.2.0"
+version = "0.2.1"
 description = "Biograph unified shell history sensor — watches ~/.bash_history and ~/.zsh_history and sends shell-cmd events to the backend"
 requires-python = ">=3.12"
 dependencies = [

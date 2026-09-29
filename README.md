@@ -472,7 +472,17 @@ bio backup
 
 To secure communication between your sensors and the backend over local networks, you can enable HTTPS. 
 
-Refer to the detailed **[TLS & HTTPS Setup Guide](docs/TLS.md)** for step-by-step instructions on generating certificates and configuring root CA trust on your devices.
+## Development & Version Management
+
+The repository uses [VERSION](VERSION) at the root as the single source of truth for the project version across all Python packages, Arch Linux PKGBUILDs, GNU Guix definitions, browser extensions, and Kodi add-ons.
+
+```bash
+# Check current version
+./scripts/set-version.sh
+
+# Bump version everywhere (updates VERSION, pyproject.toml, uv.lock, PKGBUILDs, manifests)
+./scripts/set-version.sh 0.2.2
+```
 
 ---
 

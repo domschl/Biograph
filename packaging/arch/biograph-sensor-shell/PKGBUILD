@@ -1,6 +1,6 @@
 # Maintainer: Dominik Schloesser
 pkgname=biograph-sensor-shell
-pkgver=0.2.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc="Biograph unified shell history sensor (bash & zsh) — watches history and sends events"
 arch=('any')
@@ -19,13 +19,18 @@ _sync_local() {
     mkdir -p "${srcdir}/Biograph/sensors"
     rm -rf "${srcdir}/Biograph/sensors/shell"
     cp -r "${startdir}/../../../sensors/shell" "${srcdir}/Biograph/sensors/"
+    cp "${startdir}/../../../VERSION" "${srcdir}/Biograph/VERSION" 2>/dev/null || true
   fi
 }
 
 pkgver() {
   _sync_local
-  cd "${srcdir}/Biograph/sensors/shell"
-  grep -m 1 "^version" pyproject.toml | cut -d '"' -f 2
+  if [[ -f "${srcdir}/Biograph/VERSION" ]]; then
+    tr -d ' \n\r' < "${srcdir}/Biograph/VERSION"
+  else
+    cd "${srcdir}/Biograph/sensors/shell"
+    grep -m 1 "^version" pyproject.toml | cut -d '"' -f 2
+  fi
 }
 
 build() {

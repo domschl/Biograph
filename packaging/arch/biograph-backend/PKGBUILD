@@ -1,6 +1,6 @@
 # Maintainer: Dominik Schloesser
 pkgname=biograph-backend
-pkgver=0.1.1
+pkgver=0.2.1
 pkgrel=1
 pkgdesc="Biograph personal life-logging backend (FastAPI + SQLite)"
 arch=('any')
@@ -14,12 +14,28 @@ sha256sums=('SKIP')
 backup=('etc/biograph/config.toml')
 install=biograph-backend.install
 
+_sync_local() {
+  if [[ -d "${startdir}/../../../backend" ]]; then
+    mkdir -p "${srcdir}/Biograph"
+    rm -rf "${srcdir}/Biograph/backend" "${srcdir}/Biograph/web-client"
+    cp -r "${startdir}/../../../backend" "${srcdir}/Biograph/"
+    cp -r "${startdir}/../../../web-client" "${srcdir}/Biograph/"
+    cp "${startdir}/../../../VERSION" "${srcdir}/Biograph/VERSION" 2>/dev/null || true
+  fi
+}
+
 pkgver() {
-  cd "${srcdir}/Biograph/backend"
-  grep -m 1 "^version" pyproject.toml | cut -d '"' -f 2
+  _sync_local
+  if [[ -f "${srcdir}/Biograph/VERSION" ]]; then
+    tr -d ' \n\r' < "${srcdir}/Biograph/VERSION"
+  else
+    cd "${srcdir}/Biograph/backend"
+    grep -m 1 "^version" pyproject.toml | cut -d '"' -f 2
+  fi
 }
 
 build() {
+  _sync_local
   cd "${srcdir}/Biograph/backend"
   rm -rf dist
   /usr/bin/python -m build --wheel --no-isolation
@@ -38,6 +54,9 @@ package() {
   install -Dm644 biograph-backend.sysusers "${pkgdir}/usr/lib/sysusers.d/biograph-backend.conf"
 
   # Install default configuration
-  install -Dm640 ../config.example.toml "${pkgdir}/etc/biograph/config.toml"
+  if [[ -f "${startdir}/../../../config.example.toml" ]]; then
+    install -Dm640 "${startdir}/../../../config.example.toml" "${pkgdir}/etc/biograph/config.toml"
+  else
+    install -Dm640 "${srcdir}/Biograph/config.example.toml" "${pkgdir}/etc/biograph/config.toml"
+  fi
 }
-
