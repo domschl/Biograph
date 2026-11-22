@@ -694,4 +694,63 @@ async def test_import_export_resource_uri(client: AsyncClient) -> None:
     assert r_get.json()["resource_uri"] == "{ebooks}/Hobbit_New.epub"
 
 
+@pytest.mark.asyncio
+async def test_koreader_progress_and_timezone_normalization(client: AsyncClient) -> None:
+    """Ereader events with UTC, non-UTC offset, and naive timestamps all work and deduplicate."""
+    # 1. Create koreader-progress event with UTC timestamp
+    r1 = await client.post(
+        "/events/",
+        json=_event_payload(
+            timestamp="2026-07-01T12:00:00+00:00",
+            ev_type="koreader-progress",
+            source_app="koreader-sync-server",
+            content={"document_hash": "abc123", "percentage": 0.42},
+        ),
+    )
+    assert r1.status_code == 201
+    id1 = r1.json()["id"]
+
+    # 2. Same instant with +02:00 offset should deduplicate to the same event
+    r2 = await client.post(
+        "/events/",
+        json=_event_payload(
+            timestamp="2026-07-01T14:00:00+02:00",
+            ev_type="koreader-progress",
+            source_app="koreader-sync-server",
+            content={"document_hash": "abc123", "percentage": 0.42},
+        ),
+    )
+    assert r2.status_code == 201
+    assert r2.json()["id"] == id1
+
+    # 3. Same instant with naive timestamp (treated as UTC) should also deduplicate
+    r3 = await client.post(
+        "/events/",
+        json=_event_payload(
+            timestamp="2026-07-01T12:00:00",
+            ev_type="koreader-progress",
+            source_app="koreader-sync-server",
+            content={"document_hash": "abc123", "percentage": 0.42},
+        ),
+    )
+    assert r3.status_code == 201
+    assert r3.json()["id"] == id1
+
+    # 4. Naive query params on list and export should not fail
+    r_list = await client.get(
+        "/events/",
+        params={"from": "2026-07-01T11:00:00", "to": "2026-07-01T13:00:00"},
+    )
+    assert r_list.status_code == 200
+    assert r_list.json()["total"] == 1
+
+    r_exp = await client.get(
+        "/events/export",
+        params={"from": "2026-07-01T11:00:00", "to": "2026-07-01T13:00:00"},
+    )
+    assert r_exp.status_code == 200
+    assert len([line for line in r_exp.text.splitlines() if line]) == 1
+
+
+
 

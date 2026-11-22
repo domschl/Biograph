@@ -31,10 +31,10 @@ def is_ereader_event(ev_type: str) -> bool:
 
 
 def _normalize_dt(dt: datetime) -> datetime:
-    """Normalize datetime to naive UTC for consistent comparison."""
-    if dt.tzinfo is not None:
-        return dt.astimezone(UTC).replace(tzinfo=None)
-    return dt
+    """Normalize datetime to timezone-aware UTC for consistent storage and comparison."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -67,8 +67,9 @@ async def create_event(
         if existing:
             return EventRead.from_event(existing)
 
+    normalized_ts = _normalize_dt(body.timestamp)
+
     if is_ereader_event(body.ev_type):
-        normalized_ts = _normalize_dt(body.timestamp)
         stmt = select(Event).where(
             Event.deleted_at.is_(None),
             Event.timestamp == normalized_ts,
@@ -92,7 +93,7 @@ async def create_event(
 
     next_update_id = await _get_next_update_id(session)
     event = Event(
-        timestamp=body.timestamp,
+        timestamp=normalized_ts,
         received_at=datetime.now(UTC),
         ev_type=body.ev_type,
         source_host=body.source_host,
@@ -185,6 +186,7 @@ async def create_events_batch(
     response_events = []
 
     for e in body:
+        ts = _normalize_dt(e.timestamp)
         if e.remote_id:
             key = (e.remote_id, e.ev_type)
             dup = existing_remote_id_map.get(key)
@@ -200,7 +202,7 @@ async def create_events_batch(
                 response_events.append(dup)
             else:
                 new_event = Event(
-                    timestamp=e.timestamp,
+                    timestamp=ts,
                     received_at=now,
                     ev_type=e.ev_type,
                     source_host=e.source_host,
@@ -215,7 +217,7 @@ async def create_events_batch(
                 events_to_insert.append(new_event)
                 response_events.append(new_event)
         elif is_ereader_event(e.ev_type):
-            key = (_normalize_dt(e.timestamp), e.ev_type)
+            key = (ts, e.ev_type)
             dup = existing_ereader_map.get(key)
 
             # Also check for duplicates within the incoming batch itself
@@ -229,7 +231,7 @@ async def create_events_batch(
                 response_events.append(dup)
             else:
                 new_event = Event(
-                    timestamp=e.timestamp,
+                    timestamp=ts,
                     received_at=now,
                     ev_type=e.ev_type,
                     source_host=e.source_host,
@@ -263,7 +265,7 @@ async def create_events_batch(
                 response_events.append(dup)
             else:
                 new_event = Event(
-                    timestamp=e.timestamp,
+                    timestamp=ts,
                     received_at=now,
                     ev_type=e.ev_type,
                     source_host=e.source_host,
@@ -279,7 +281,7 @@ async def create_events_batch(
                 response_events.append(new_event)
         else:
             new_event = Event(
-                timestamp=e.timestamp,
+                timestamp=ts,
                 received_at=now,
                 ev_type=e.ev_type,
                 source_host=e.source_host,
@@ -335,9 +337,9 @@ async def list_events(
         base = base.where(Event.deleted_at.is_(None))
 
     if from_:
-        base = base.where(Event.timestamp >= from_)
+        base = base.where(Event.timestamp >= _normalize_dt(from_))
     if to:
-        base = base.where(Event.timestamp <= to)
+        base = base.where(Event.timestamp <= _normalize_dt(to))
     if ev_type:
         if "kodi-movie" in ev_type:
             if "web-visit" in ev_type:
@@ -409,9 +411,9 @@ async def export_events(
         if not include_deleted:
             stmt = stmt.where(Event.deleted_at.is_(None))
         if from_:
-            stmt = stmt.where(Event.timestamp >= from_)
+            stmt = stmt.where(Event.timestamp >= _normalize_dt(from_))
         if to:
-            stmt = stmt.where(Event.timestamp <= to)
+            stmt = stmt.where(Event.timestamp <= _normalize_dt(to))
         if since_update_id is not None:
             stmt = stmt.where(Event.update_id > since_update_id)
             
@@ -444,7 +446,7 @@ async def import_events(
                 continue
             try:
                 data = json.loads(line)
-                ts = datetime.fromisoformat(data["timestamp"])
+                ts = _normalize_dt(datetime.fromisoformat(data["timestamp"]))
                 tags_list = data.get("tags") or []
                 if not isinstance(tags_list, list):
                     tags_list = [tags_list]
@@ -464,8 +466,8 @@ async def import_events(
                 if existing:
                     # Update fields
                     existing.timestamp = ts
-                    if "received_at" in data:
-                        existing.received_at = datetime.fromisoformat(data["received_at"])
+                    if "received_at" in data and data["received_at"] is not None:
+                        existing.received_at = _normalize_dt(datetime.fromisoformat(data["received_at"]))
                     existing.ev_type = data["ev_type"]
                     existing.source_host = data.get("source_host")
                     existing.source_app = data.get("source_app")
@@ -473,7 +475,7 @@ async def import_events(
                     existing.tags = json.dumps(tags_list)
                     existing.summary = data.get("summary")
                     if "deleted_at" in data and data["deleted_at"] is not None:
-                        existing.deleted_at = datetime.fromisoformat(data["deleted_at"])
+                        existing.deleted_at = _normalize_dt(datetime.fromisoformat(data["deleted_at"]))
                     else:
                         existing.deleted_at = None
                     existing.remote_id = data.get("remote_id")
@@ -490,14 +492,14 @@ async def import_events(
                     event = Event(
                         id=data.get("id"),
                         timestamp=ts,
-                        received_at=datetime.fromisoformat(data["received_at"]) if "received_at" in data else now,
+                        received_at=_normalize_dt(datetime.fromisoformat(data["received_at"])) if data.get("received_at") is not None else now,
                         ev_type=data["ev_type"],
                         source_host=data.get("source_host"),
                         source_app=data.get("source_app"),
                         content=json.dumps(data.get("content") or {}),
                         tags=json.dumps(tags_list),
                         summary=data.get("summary"),
-                        deleted_at=datetime.fromisoformat(data["deleted_at"]) if "deleted_at" in data and data["deleted_at"] is not None else None,
+                        deleted_at=_normalize_dt(datetime.fromisoformat(data["deleted_at"])) if data.get("deleted_at") is not None else None,
                         remote_id=data.get("remote_id"),
                         resource_uri=data.get("resource_uri"),
                     )
