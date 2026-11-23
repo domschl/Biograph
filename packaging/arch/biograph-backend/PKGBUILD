@@ -1,6 +1,6 @@
 # Maintainer: Dominik Schloesser
 pkgname=biograph-backend
-pkgver=0.2.2
+pkgver=0.2.3
 pkgrel=1
 pkgdesc="Biograph personal life-logging backend (FastAPI + SQLite)"
 arch=('any')

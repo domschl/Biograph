@@ -1,6 +1,6 @@
 # Maintainer: Dominik Schloesser
 pkgname=biograph-sensor-shell
-pkgver=0.2.2
+pkgver=0.2.3
 pkgrel=1
 pkgdesc="Biograph unified shell history sensor (bash & zsh) — watches history and sends events"
 arch=('any')

@@ -163,6 +163,52 @@ async function checkConnection() {
 
 // ── 4. Rendering Engine ──────────────────────────────────────
 
+const READING_PROGRESS_TYPES = new Set([
+  'kindle-book',
+  'tolino-book',
+  'pocketbook-book',
+  'koreader-progress',
+  'koreader-book',
+  'kosync-progress'
+]);
+
+function isReadingProgressType(evType) {
+  return READING_PROGRESS_TYPES.has(evType);
+}
+
+function formatReadingPercent(c) {
+  if (!c) return null;
+  if (c.percentage !== undefined && c.percentage !== null) {
+    const pctVal = c.percentage <= 1.0 ? (c.percentage * 100).toFixed(1) : c.percentage;
+    return `${pctVal}%`;
+  }
+  if (c.percent_read !== undefined && c.percent_read !== null) {
+    return `${c.percent_read}%`;
+  }
+  return null;
+}
+
+function getReadingBookTitle(c) {
+  if (!c) return 'Unknown Book';
+  return c.filename || c.book_title || (c.document_hash ? `Document ${c.document_hash.substring(0, 10)}` : 'Unknown Book');
+}
+
+function getReadingBookKey(event) {
+  const c = event.content || {};
+  if (c.document_hash) return `hash:${c.document_hash}`;
+  if (c.filename) return `file:${c.filename}`;
+  if (c.book_title) return `title:${c.book_title}`;
+  return `unknown:${event.ev_type}`;
+}
+
+function getLocalDayKey(timestamp) {
+  const date = new Date(timestamp);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 /**
  * Generates an event card element with the corresponding structure.
  */
@@ -175,6 +221,9 @@ function renderEventCard(event) {
     card.setAttribute('data-merged-ids', ids);
   } else if (event.isMergedWebGroup && event.visits) {
     const ids = event.visits.map(item => item.id).join(',');
+    card.setAttribute('data-merged-ids', ids);
+  } else if (event.isMergedReadingGroup && event.progressEvents) {
+    const ids = event.progressEvents.map(item => item.id).join(',');
     card.setAttribute('data-merged-ids', ids);
   }
   
@@ -290,31 +339,104 @@ function renderEventCard(event) {
         ${c.location ? `· Location ${c.location}` : ''}
       </div>
     `;
-  } else if (event.ev_type === 'kindle-book' || event.ev_type === 'tolino-book' || event.ev_type === 'pocketbook-book' || event.ev_type === 'koreader-progress' || event.ev_type === 'koreader-book' || event.ev_type === 'kosync-progress') {
-    const isFinished = c.read_status === 2 || c.percent_read === 100 || c.percentage === 1.0 || c.percentage === 100;
-    
-    let progressText = '';
-    if (c.percentage !== undefined && c.percentage !== null) {
-      const pctVal = c.percentage <= 1.0 ? (c.percentage * 100).toFixed(1) : c.percentage;
-      progressText = `· Progress: ${pctVal}%`;
-    } else if (c.percent_read !== undefined && c.percent_read !== null) {
-      progressText = `· Progress: ${c.percent_read}%`;
+  } else if (isReadingProgressType(event.ev_type)) {
+    if (event.isMergedReadingGroup && event.progressEvents && event.progressEvents.length > 1) {
+      let earliest = event.progressEvents[0];
+      let latest = event.progressEvents[0];
+      for (const item of event.progressEvents) {
+        const t = new Date(item.timestamp).getTime();
+        if (t < new Date(earliest.timestamp).getTime()) earliest = item;
+        if (t > new Date(latest.timestamp).getTime()) latest = item;
+      }
+
+      const lc = latest.content || {};
+      const ec = earliest.content || {};
+      const isFinished = lc.read_status === 2 || lc.percent_read === 100 || lc.percentage === 1.0 || lc.percentage === 100;
+
+      const startPct = formatReadingPercent(ec);
+      const endPct = formatReadingPercent(lc);
+      let progressText = '';
+      if (startPct && endPct && startPct !== endPct) {
+        progressText = `· Progress: ${startPct} → ${endPct}`;
+      } else if (endPct) {
+        progressText = `· Progress: ${endPct}`;
+      } else if (startPct) {
+        progressText = `· Progress: ${startPct}`;
+      }
+
+      const title = event.bookTitle || getReadingBookTitle(lc);
+      const author = lc.author || ec.author;
+      const user = lc.user || ec.user;
+      const device = lc.device || ec.device;
+      const authorText = author ? `by ${escapeHtml(author)}` : (user ? `user: ${escapeHtml(user)}` : '');
+      const statusText = isFinished ? 'Finished book:' : 'Reading progress on:';
+
+      const formatShortTime = (ts) => new Date(ts).toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+      const startTimeStr = formatShortTime(earliest.timestamp);
+      const endTimeStr = formatShortTime(latest.timestamp);
+      const timeRangeText = startTimeStr !== endTimeStr ? `· ${startTimeStr} – ${endTimeStr}` : '';
+
+      const progressItems = event.progressEvents.map(item => {
+        const ic = item.content || {};
+        const itemTime = new Date(item.timestamp).toLocaleTimeString(undefined, {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        });
+        const itemPct = formatReadingPercent(ic);
+        const parts = [];
+        if (itemPct) parts.push(`<strong>${escapeHtml(itemPct)}</strong>`);
+        if (ic.progress) parts.push(`Pos: ${escapeHtml(ic.progress)}`);
+        if (ic.device && ic.device !== device) parts.push(escapeHtml(ic.device));
+        const detailText = parts.length > 0 ? parts.join(' · ') : 'Progress update';
+
+        return `
+          <div class="merged-reading-item">
+            <span class="merged-reading-time">${itemTime}</span>
+            <span class="merged-reading-detail">${detailText}</span>
+          </div>
+        `;
+      }).join('');
+
+      contentHtml = `
+        <div class="ev-title">${statusText} <strong>${escapeHtml(title)}</strong></div>
+        <div class="ev-book-meta">
+          ${authorText}
+          ${device ? `· Device: ${escapeHtml(device)}` : ''}
+          ${progressText}
+          ${timeRangeText}
+        </div>
+        <details class="merged-reading-details">
+          <summary class="merged-reading-summary">${event.progressEvents.length} progress updates</summary>
+          <div class="merged-reading-list">
+            ${progressItems}
+          </div>
+        </details>
+      `;
+    } else {
+      const isFinished = c.read_status === 2 || c.percent_read === 100 || c.percentage === 1.0 || c.percentage === 100;
+      const pct = formatReadingPercent(c);
+      const progressText = pct ? `· Progress: ${pct}` : '';
+      const title = getReadingBookTitle(c);
+      const authorText = c.author ? `by ${escapeHtml(c.author)}` : (c.user ? `user: ${escapeHtml(c.user)}` : '');
+      const statusText = isFinished ? 'Finished book:' : 'Reading progress on:';
+
+      contentHtml = `
+        <div class="ev-title">${statusText} <strong>${escapeHtml(title)}</strong></div>
+        <div class="ev-book-meta">
+          ${authorText}
+          ${c.device ? `· Device: ${escapeHtml(c.device)}` : ''}
+          ${progressText}
+          ${c.progress ? `· Pos: ${escapeHtml(c.progress)}` : ''}
+          ${c.last_read ? `· Last read: ${new Date(c.last_read).toLocaleDateString()}` : ''}
+        </div>
+      `;
     }
-
-    const title = c.filename || c.book_title || (c.document_hash ? `Document ${c.document_hash.substring(0, 10)}` : 'Unknown Book');
-    const authorText = c.author ? `by ${escapeHtml(c.author)}` : (c.user ? `user: ${escapeHtml(c.user)}` : '');
-    const statusText = isFinished ? 'Finished book:' : 'Reading progress on:';
-
-    contentHtml = `
-      <div class="ev-title">${statusText} <strong>${escapeHtml(title)}</strong></div>
-      <div class="ev-book-meta">
-        ${authorText}
-        ${c.device ? `· Device: ${escapeHtml(c.device)}` : ''}
-        ${progressText}
-        ${c.progress ? `· Pos: ${escapeHtml(c.progress)}` : ''}
-        ${c.last_read ? `· Last read: ${new Date(c.last_read).toLocaleDateString()}` : ''}
-      </div>
-    `;
   } else if (event.ev_type === 'calibre-book') {
     contentHtml = `
       <div class="ev-title">Added book to Calibre: <strong>${escapeHtml(c.title || 'Unknown Book')}</strong></div>
@@ -440,6 +562,7 @@ function renderEventCard(event) {
  * Groups consecutive events if they belong to the same category:
  * 1. consecutive zsh shell-cmd events on the same host (within 5 minutes)
  * 2. consecutive web visits to the same website host (no timeout)
+ * 3. consecutive reading progress events for the same book on the same day
  */
 function preprocessEvents(events) {
   if (!events || events.length === 0) return [];
@@ -447,6 +570,7 @@ function preprocessEvents(events) {
   const merged = [];
   let currentZshGroup = null;
   let currentWebGroup = null;
+  let currentReadingGroup = null;
   
   function getWebsiteHost(url) {
     try {
@@ -460,6 +584,7 @@ function preprocessEvents(events) {
     const isYoutubeMovie = event.ev_type === 'web-visit' && event.content && event.content.url && event.content.url.includes('youtube.com/watch?v=');
     const isShellCmd = event.ev_type === 'shell-cmd';
     const isWebVisit = event.ev_type === 'web-visit' && !isYoutubeMovie;
+    const isReadingProgress = isReadingProgressType(event.ev_type);
     
     // Close Shell group if we hit any non-shell-command
     if (!isShellCmd && currentZshGroup) {
@@ -471,6 +596,12 @@ function preprocessEvents(events) {
     if (!isWebVisit && currentWebGroup) {
       merged.push(currentWebGroup);
       currentWebGroup = null;
+    }
+
+    // Close Reading progress group if we hit any non-reading-progress event
+    if (!isReadingProgress && currentReadingGroup) {
+      merged.push(currentReadingGroup);
+      currentReadingGroup = null;
     }
     
     if (isShellCmd) {
@@ -527,6 +658,37 @@ function preprocessEvents(events) {
       } else {
         currentWebGroup = startNewWebGroup(event, eventHost);
       }
+    } else if (isReadingProgress) {
+      const bookKey = getReadingBookKey(event);
+      const dayKey = getLocalDayKey(event.timestamp);
+      if (currentReadingGroup) {
+        if (bookKey === currentReadingGroup.bookKey && dayKey === currentReadingGroup.dayKey) {
+          currentReadingGroup.progressEvents.push({
+            content: event.content || {},
+            timestamp: event.timestamp,
+            id: event.id,
+            ev_type: event.ev_type
+          });
+          // Prefer a real filename/book_title over a hash fallback if encountered
+          const c = event.content || {};
+          if (!currentReadingGroup.hasNamedTitle && (c.filename || c.book_title)) {
+            currentReadingGroup.bookTitle = c.filename || c.book_title;
+            currentReadingGroup.hasNamedTitle = true;
+          }
+          if (event.tags) {
+            for (const tag of event.tags) {
+              if (!currentReadingGroup.tags.includes(tag)) {
+                currentReadingGroup.tags.push(tag);
+              }
+            }
+          }
+        } else {
+          merged.push(currentReadingGroup);
+          currentReadingGroup = startNewReadingGroup(event, bookKey, dayKey);
+        }
+      } else {
+        currentReadingGroup = startNewReadingGroup(event, bookKey, dayKey);
+      }
     } else {
       merged.push({ ...event });
     }
@@ -537,6 +699,9 @@ function preprocessEvents(events) {
   }
   if (currentWebGroup) {
     merged.push(currentWebGroup);
+  }
+  if (currentReadingGroup) {
+    merged.push(currentReadingGroup);
   }
   
   return merged;
@@ -569,6 +734,25 @@ function startNewWebGroup(event, websiteHost) {
     }],
     websiteHost: websiteHost,
     isMergedWebGroup: true
+  };
+}
+
+function startNewReadingGroup(event, bookKey, dayKey) {
+  const c = event.content || {};
+  return {
+    ...event,
+    tags: [...(event.tags || [])],
+    progressEvents: [{
+      content: c,
+      timestamp: event.timestamp,
+      id: event.id,
+      ev_type: event.ev_type
+    }],
+    bookKey: bookKey,
+    dayKey: dayKey,
+    bookTitle: getReadingBookTitle(c),
+    hasNamedTitle: Boolean(c.filename || c.book_title),
+    isMergedReadingGroup: true
   };
 }
 
@@ -611,6 +795,10 @@ function renderEventList(events, container) {
     for (const event of dayEvents) {
       if (event.isMergedZshGroup && event.commands) {
         actualCount += event.commands.length;
+      } else if (event.isMergedWebGroup && event.visits) {
+        actualCount += event.visits.length;
+      } else if (event.isMergedReadingGroup && event.progressEvents) {
+        actualCount += event.progressEvents.length;
       } else {
         actualCount += 1;
       }

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Biograph Web Sensor",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Automatically journals your browser visits as web-visit events on your Biograph timeline.",
   "permissions": [
     "tabs",
