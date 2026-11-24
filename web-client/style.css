@@ -37,6 +37,8 @@
   /* Event-type badge colours (bg is 12% opacity of these) */
   --ev-note:             #60a5fa;
   --ev-shell-cmd:        #4ade80;
+  --ev-dev-project:      #38bdf8;
+  --ev-wiki-note:        #f59e0b;
   --ev-web-visit:        #fb923c;
   --ev-kindle-highlight: #fbbf24;
   --ev-kindle-book:      #c084fc;
@@ -278,6 +280,8 @@ svg  { display: block; }
 
 .ev-badge-note             { background: rgba(96,165,250,.13); color: var(--ev-note); }
 .ev-badge-shell-cmd        { background: rgba(74,222,128,.13); color: var(--ev-shell-cmd); font-family: monospace; font-size: 10px; }
+.ev-badge-dev-project      { background: rgba(56,189,248,.14); color: var(--ev-dev-project); }
+.ev-badge-wiki-note        { background: rgba(245,158,11,.14); color: var(--ev-wiki-note); }
 .ev-badge-web-visit        { background: rgba(251,146,60,.13); color: var(--ev-web-visit); }
 .ev-badge-kindle-highlight { background: rgba(251,191,36,.13); color: var(--ev-kindle-highlight); }
 .ev-badge-kindle-book      { background: rgba(192,132,252,.13); color: var(--ev-kindle-book); }

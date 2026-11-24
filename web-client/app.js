@@ -240,6 +240,8 @@ function renderEventCard(event) {
   else if (event.ev_type === 'kodi-movie') badgeIcon = '🎬';
   else if (event.ev_type === 'kodi-tvshow') badgeIcon = '📺';
   else if (event.ev_type === 'photo') badgeIcon = '📷';
+  else if (event.ev_type === 'dev-project') badgeIcon = '💻';
+  else if (event.ev_type === 'wiki-note') badgeIcon = '🗒️';
   
   const badgeClass = `ev-badge ev-badge-${isYoutubeMovie ? 'kodi-movie' : event.ev_type}`;
   
@@ -259,7 +261,31 @@ function renderEventCard(event) {
   let contentHtml = '';
   const c = event.content || {};
   
-  if (event.ev_type === 'shell-cmd') {
+  if (event.ev_type === 'wiki-note') {
+    const title = c.title || 'Wiki Note';
+    const cat = c.category ? `<span class="ev-book-meta" style="display:inline;margin-left:6px;opacity:0.8;">[${escapeHtml(c.category)}]</span>` : '';
+    const excerpt = c.excerpt ? `<div class="ev-book-meta" style="margin-top:4px;">${escapeHtml(c.excerpt.substring(0, 260))}${c.excerpt.length > 260 ? '…' : ''}</div>` : '';
+    contentHtml = `
+      <div class="ev-book-title">Wiki note: <strong>${escapeHtml(title)}</strong>${cat}</div>
+      ${excerpt}
+    `;
+  } else if (event.ev_type === 'dev-project') {
+    const project = c.project || 'Project';
+    const desc = c.description ? `<div class="ev-book-meta" style="margin-top:4px;">${escapeHtml(c.description)}</div>` : '';
+    const commits = Array.isArray(c.recent_commits) && c.recent_commits.length
+      ? `<div class="ev-book-meta" style="margin-top:4px;">Latest commits: ${escapeHtml(c.recent_commits.slice(0, 3).join(' · '))}</div>`
+      : '';
+    const metaParts = [];
+    if (c.path) metaParts.push(c.path);
+    if (Array.isArray(c.languages) && c.languages.length) metaParts.push(c.languages.join(', '));
+    if (Array.isArray(c.modified_files) && c.modified_files.length) metaParts.push(`${c.modified_files.length} uncommitted edit(s)`);
+    contentHtml = `
+      <div class="ev-book-title">Dev project: <strong>${escapeHtml(project)}</strong></div>
+      ${desc}
+      ${commits}
+      ${metaParts.length ? `<div class="ev-book-meta" style="margin-top:4px;opacity:0.8;">${escapeHtml(metaParts.join(' · '))}</div>` : ''}
+    `;
+  } else if (event.ev_type === 'shell-cmd') {
     if (event.isMergedZshGroup) {
       const commandItems = event.commands.map(item => {
         const itemTime = new Date(item.timestamp);
@@ -1014,6 +1040,12 @@ function renderSearchView(container) {
       <label class="filter-chip ${isActive('shell-cmd')}">
         <input type="checkbox" value="shell-cmd" class="filter-type-checkbox" ${isChecked('shell-cmd')}> Shell
       </label>
+      <label class="filter-chip ${isActive('dev-project')}">
+        <input type="checkbox" value="dev-project" class="filter-type-checkbox" ${isChecked('dev-project')}> Dev
+      </label>
+      <label class="filter-chip ${isActive('wiki-note')}">
+        <input type="checkbox" value="wiki-note" class="filter-type-checkbox" ${isChecked('wiki-note')}> Wiki
+      </label>
       <label class="filter-chip ${isActive('web-visit')}">
         <input type="checkbox" value="web-visit" class="filter-type-checkbox" ${isChecked('web-visit')}> Web
       </label>
@@ -1435,6 +1467,7 @@ async function renderStatsView(container) {
         const typeColors = {
           'note': '#60a5fa',
           'shell-cmd': '#4ade80',
+          'dev-project': '#38bdf8',
           'web-visit': '#fb923c',
           'kindle-highlight': '#fbbf24',
           'kindle-book': '#c084fc',
@@ -1595,6 +1628,7 @@ function drawDonutChart(canvas, data) {
   const typeColors = {
     'note': '#60a5fa',
     'shell-cmd': '#4ade80',
+    'dev-project': '#38bdf8',
     'web-visit': '#fb923c',
     'kindle-highlight': '#fbbf24',
     'kindle-book': '#c084fc',

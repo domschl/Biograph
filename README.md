@@ -11,6 +11,7 @@ biograph/
 ├── backend/          — FastAPI + SQLite backend
 ├── sensors/
 │   ├── shell/        — unified bash & zsh history sensor (Linux + macOS)
+│   ├── devproject/   — git repository & markdown wiki/notes activity sensor
 │   ├── kindle/       — Amazon Kindle clippings sensor
 │   ├── kodi/         — Kodi movie playback sensor (service add-on)
 │   └── cli/          — bio CLI logger and query tool (includes Tolino support)
@@ -134,6 +135,8 @@ uv run pytest
 | `kodi-movie` | `title: str`, `year: int \| null`, `imdb_id: str \| null`, `db_id: int \| null`, `file: str`, `duration_seconds: int`, `progress_percent: float`, `finished: bool` |
 | `kodi-tvshow` | `title: str`, `tvshow_title: str`, `season: int \| null`, `episode: int \| null`, `year: int \| null`, `imdb_id: str \| null`, `db_id: int \| null`, `file: str`, `duration_seconds: int`, `progress_percent: float`, `finished: bool` |
 | `photo` | `path: str`, `caption: str \| null`, `lat: float \| null`, `lon: float \| null` |
+| `dev-project` | `project: str`, `path: str`, `description: str`, `readme_excerpt: str`, `recent_commits: list[str]`, `modified_files: list[str]`, `latest_commit_sha: str`, `languages: list[str]` |
+| `wiki-note` | `title: str`, `category: str`, `rel_path: str`, `path: str`, `excerpt: str` |
 
 ---
 
@@ -172,6 +175,14 @@ token = "change-me"              # Authorization token to connect to the backend
 [resources]
 # photos = "/home/user/Pictures"  # Local path to resolve {photos}/... URIs
 # ebooks = "/home/user/Books"     # Local path to resolve {ebooks}/... URIs
+
+[devproject]
+# roots = ["~/Source", "~/gith", "~/Projects"] # Git repo roots scanned by biograph-sensor-devproject
+# notes_roots = ["~/Docs/Wiki/Notes"]          # Markdown wiki/notes directories to scan
+# notes_exclude_dirs = ["Personal", "Diary", "Templates"]
+# lookback_days = 14
+# max_depth = 4
+# poll_interval_minutes = 30
 ```
 
 ### Resource URIs & Placeholders

@@ -1,0 +1,15 @@
+[Unit]
+Description=Biograph development project sensor (git repos, README & IDE edits)
+Documentation=https://github.com/domschl/Biograph
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/biograph-sensor-devproject
+Restart=on-failure
+RestartSec=15s
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
