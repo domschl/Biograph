@@ -1,0 +1,47 @@
+# Maintainer: Dominik Schloesser
+pkgname=biograph-sensor-devproject
+pkgver=0.2.5
+pkgrel=1
+pkgdesc="Biograph development project & wiki notes sensor — scans local git repositories and markdown notes and sends events"
+arch=('any')
+url="https://github.com/domschl/Biograph"
+license=('MIT')
+depends=('python' 'python-httpx' 'git')
+makedepends=('python-build' 'python-installer' 'python-hatchling' 'python-wheel' 'git')
+source=("git+https://github.com/domschl/Biograph.git")
+sha256sums=('SKIP')
+
+_sync_local() {
+  if [[ -d "${startdir}/../../../sensors/devproject" ]]; then
+    mkdir -p "${srcdir}/Biograph/sensors"
+    rm -rf "${srcdir}/Biograph/sensors/devproject"
+    cp -r "${startdir}/../../../sensors/devproject" "${srcdir}/Biograph/sensors/"
+    cp "${startdir}/../../../VERSION" "${srcdir}/Biograph/VERSION" 2>/dev/null || true
+  fi
+}
+
+pkgver() {
+  _sync_local
+  if [[ -f "${srcdir}/Biograph/VERSION" ]]; then
+    tr -d ' \n\r' < "${srcdir}/Biograph/VERSION"
+  else
+    cd "${srcdir}/Biograph/sensors/devproject"
+    grep -m 1 "^version" pyproject.toml | cut -d '"' -f 2
+  fi
+}
+
+build() {
+  _sync_local
+  cd "${srcdir}/Biograph/sensors/devproject"
+  rm -rf dist .venv .pytest_cache
+  /usr/bin/python -m build --wheel --no-isolation
+}
+
+package() {
+  cd "${srcdir}/Biograph/sensors/devproject"
+  /usr/bin/python -m installer --destdir="${pkgdir}" dist/*.whl
+
+  # Point the systemd user service to the system-wide executable
+  sed -i 's|%h/.local/bin/biograph-sensor-devproject|/usr/bin/biograph-sensor-devproject|g' biograph-devproject.service
+  install -Dm644 biograph-devproject.service "${pkgdir}/usr/lib/systemd/user/biograph-devproject.service"
+}

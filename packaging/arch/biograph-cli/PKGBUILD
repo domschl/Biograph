@@ -1,6 +1,6 @@
 # Maintainer: Dominik Schloesser
 pkgname=biograph-cli
-pkgver=0.2.4
+pkgver=0.2.5
 pkgrel=1
 pkgdesc="Biograph command-line logger and query tool (bio CLI)"
 arch=('any')

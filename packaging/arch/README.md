@@ -7,6 +7,7 @@ This directory contains `PKGBUILD` scripts to package Biograph components for Ar
 1. **`biograph-backend`**: Installs the FastAPI backend server (`biograph-server`), mounts the static web client assets in `/usr/share/biograph/web-client`, and sets up a systemd system service (`biograph-backend.service`) running under a dedicated `biograph` system user.
 2. **`biograph-cli`**: Installs the `bio` CLI query and note-taking utility.
 3. **`biograph-sensor-shell`**: Installs the `biograph-sensor-shell` daemon and a system-wide systemd user service (`biograph-shell.service`) configured to execute the system binary.
+4. **`biograph-sensor-devproject`**: Installs the `biograph-sensor-devproject` daemon (git repositories & markdown wiki/notes scanner) and its systemd user service (`biograph-devproject.service`).
 
 ## How to Build and Install
 

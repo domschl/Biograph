@@ -1,6 +1,6 @@
 [project]
 name = "biograph-sensor-devproject"
-version = "0.2.4"
+version = "0.2.5"
 description = "Biograph development project sensor — scans local git repositories (README, recent commits, and uncommitted IDE edits) and sends dev-project events to Biograph"
 requires-python = ">=3.12"
 dependencies = [

@@ -16,7 +16,7 @@
 (define-public biograph-sensor-shell
   (package
     (name "biograph-sensor-shell")
-    (version "0.2.4")
+    (version "0.2.5")
     (source (git-reference
              (url "https://github.com/domschl/Biograph.git")
              (commit (string-append "v" version)))) ; Adjust to specific commit/tag if needed

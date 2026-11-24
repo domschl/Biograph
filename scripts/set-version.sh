@@ -51,6 +51,7 @@ PYTHON_PROJECTS=(
     "backend/pyproject.toml"
     "sensors/cli/pyproject.toml"
     "sensors/shell/pyproject.toml"
+    "sensors/devproject/pyproject.toml"
 )
 
 for proj in "${PYTHON_PROJECTS[@]}"; do
@@ -61,8 +62,13 @@ for proj in "${PYTHON_PROJECTS[@]}"; do
     fi
 done
 
+if [[ -f "${ROOT_DIR}/sensors/devproject/biograph_sensor_devproject/__init__.py" ]]; then
+    sed -i -E "s/^(__version__[[:space:]]*=[[:space:]]*\")[^\"]+(\")/\1${NEW_VERSION}\2/" "${ROOT_DIR}/sensors/devproject/biograph_sensor_devproject/__init__.py"
+    echo "  ✓ Updated sensors/devproject/biograph_sensor_devproject/__init__.py"
+fi
+
 # 3. Update uv.lock files
-for dir in "backend" "sensors/cli" "sensors/shell"; do
+for dir in "backend" "sensors/cli" "sensors/shell" "sensors/devproject"; do
     if [[ -d "${ROOT_DIR}/${dir}" ]] && command -v uv >/dev/null 2>&1; then
         (cd "${ROOT_DIR}/${dir}" && uv lock --quiet)
         echo "  ✓ Updated ${dir}/uv.lock"
@@ -74,6 +80,7 @@ PKGBUILDS=(
     "packaging/arch/biograph-backend/PKGBUILD"
     "packaging/arch/biograph-cli/PKGBUILD"
     "packaging/arch/biograph-sensor-shell/PKGBUILD"
+    "packaging/arch/biograph-sensor-devproject/PKGBUILD"
 )
 
 for pkgbuild in "${PKGBUILDS[@]}"; do
