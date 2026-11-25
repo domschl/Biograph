@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from fastapi.middleware.cors import CORSMiddleware
-from biograph.api.covers import router as covers_router
+from biograph.api.covers import check_book_covers_on_startup, router as covers_router
 from biograph.api.events import router as events_router
 from biograph.api.stats import router as stats_router
 from biograph.config import get_config
@@ -22,6 +22,7 @@ from biograph.database import create_db_tables
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Create database tables on startup (idempotent)."""
     await create_db_tables()
+    check_book_covers_on_startup()
     yield
 
 

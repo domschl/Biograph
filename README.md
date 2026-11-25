@@ -71,6 +71,25 @@ Configuration is located at `/etc/biograph/config.toml` (secured with `0640` per
 The API will be available at `http://127.0.0.1:8000`.
 Interactive docs at `http://127.0.0.1:8000/docs`.
 
+#### Serving book covers (`[resources].book_covers`)
+
+Biograph can serve book cover thumbnails (e.g. from `knrs`'s `KnrsData/BookCoverIcons/` directory) at `GET /covers/{book_uuid}` for both its own timeline UI and downstream clients like HuTube.
+
+Add the directory under `[resources]` in `/etc/biograph/config.toml`:
+
+```toml
+[resources]
+book_covers = "/home/<user>/KnrsData/BookCoverIcons"
+```
+
+Because `biograph-backend.service` runs as the dedicated `biograph` system user while home directories typically have `0750` (`drwxr-x---`) permissions, the service needs execute/traverse (`x`) access on the parent home directory (and read+execute on the covers directory itself). The minimal fix is an ACL on the home directory so `biograph` can traverse to `BookCoverIcons/` without listing your home directory:
+
+```bash
+sudo setfacl -m u:biograph:x /home/<user>
+```
+
+Alternatively, add a systemd drop-in (`sudo systemctl edit biograph-backend`) with `SupplementaryGroups=<user>`. On startup, `biograph-backend` checks `resources.book_covers` and logs an explicit error in `journalctl -u biograph-backend` if the path does not exist or cannot be accessed.
+
 
 ---
 
@@ -90,6 +109,7 @@ All endpoints (except `GET /health`) require a `Authorization: Bearer <token>` h
 | `PATCH` | `/events/{id}` | Update tags or summary |
 | `DELETE` | `/events/{id}` | Soft-delete an event |
 | `GET` | `/stats/` | Aggregate counts by type |
+| `GET` | `/covers/{book_uuid}` | Serve book cover icon from `resources.book_covers` (no auth) |
 
 ### Query parameters for `GET /events/`
 
@@ -175,6 +195,7 @@ token = "change-me"              # Authorization token to connect to the backend
 [resources]
 # photos = "/home/user/Pictures"  # Local path to resolve {photos}/... URIs
 # ebooks = "/home/user/Books"     # Local path to resolve {ebooks}/... URIs
+# book_covers = "/home/user/KnrsData/BookCoverIcons"  # Directory served at /covers/{uuid}
 
 [devproject]
 # roots = ["~/Source", "~/gith", "~/Projects"] # Git repo roots scanned by biograph-sensor-devproject
@@ -325,6 +346,8 @@ bio log --mood happy "Finished reading Dune"
 bio log                          # opens $EDITOR (fallback: nano)
 bio search "hiking" --limit 10
 bio search "git" --type shell-cmd --from 2024-01-01
+bio backfill-books ~/MetaLibrary --dry-run
+bio backfill-books ~/MetaLibrary
 ```
 
 ---
