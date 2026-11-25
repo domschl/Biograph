@@ -16,6 +16,7 @@ keyfile  = ""            # path to TLS private key (PEM)
 # Define machine-specific paths here to resolve relative URIs
 # photos = "/path/to/my/photos"
 # ebooks = "/path/to/my/ebooks"
+# book_covers = "/home/dsc/Docs/KnrsData/BookCoverIcons"
 
 [devproject]
 # Directories scanned by biograph-sensor-devproject for active git repositories & wiki notes

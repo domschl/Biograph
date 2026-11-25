@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from fastapi.middleware.cors import CORSMiddleware
+from biograph.api.covers import router as covers_router
 from biograph.api.events import router as events_router
 from biograph.api.stats import router as stats_router
 from biograph.config import get_config
@@ -42,6 +43,7 @@ app.add_middleware(
 
 app.include_router(events_router)
 app.include_router(stats_router)
+app.include_router(covers_router)
 
 
 

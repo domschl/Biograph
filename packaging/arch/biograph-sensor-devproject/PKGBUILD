@@ -1,6 +1,6 @@
 # Maintainer: Dominik Schloesser
 pkgname=biograph-sensor-devproject
-pkgver=0.2.5
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="Biograph development project & wiki notes sensor — scans local git repositories and markdown notes and sends events"
 arch=('any')

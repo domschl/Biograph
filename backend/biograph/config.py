@@ -7,7 +7,7 @@ import tomllib
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ServerConfig(BaseModel):
@@ -23,9 +23,16 @@ class TLSConfig(BaseModel):
     keyfile: str = ""
 
 
+class ResourcesConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    book_covers: str = ""
+
+
 class Config(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     tls: TLSConfig = Field(default_factory=TLSConfig)
+    resources: ResourcesConfig = Field(default_factory=ResourcesConfig)
 
 
 _DEFAULT_CONFIG_PATHS: list[Path] = [

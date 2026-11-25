@@ -188,13 +188,46 @@ function formatReadingPercent(c) {
   return null;
 }
 
+function getBookUuid(c) {
+  if (!c) return null;
+  return c.book_uuid || c.uuid || null;
+}
+
+function getBookCoverUrl(bookUuid) {
+  if (!bookUuid) return null;
+  if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(String(bookUuid))) {
+    return null;
+  }
+  return getApiUrl(`/covers/${encodeURIComponent(bookUuid)}`);
+}
+
+function getReadingAuthor(c) {
+  if (!c) return '';
+  if (c.author) return c.author;
+  if (Array.isArray(c.authors) && c.authors.length > 0) return c.authors.join(', ');
+  return '';
+}
+
+function renderBookWithCover(bookUuid, title, innerHtml) {
+  const coverUrl = getBookCoverUrl(bookUuid);
+  if (!coverUrl) return innerHtml;
+  return `
+    <div class="ev-book-row">
+      <img class="ev-book-cover" src="${coverUrl}" alt="${escapeHtml(title || 'Book cover')}" loading="lazy" onerror="this.remove()">
+      <div class="ev-book-details">${innerHtml}</div>
+    </div>
+  `;
+}
+
 function getReadingBookTitle(c) {
   if (!c) return 'Unknown Book';
-  return c.filename || c.book_title || (c.document_hash ? `Document ${c.document_hash.substring(0, 10)}` : 'Unknown Book');
+  return c.title || c.book_title || c.filename || (c.document_hash ? `Document ${c.document_hash.substring(0, 10)}` : 'Unknown Book');
 }
 
 function getReadingBookKey(event) {
   const c = event.content || {};
+  const bookUuid = getBookUuid(c);
+  if (bookUuid) return `uuid:${bookUuid}`;
   if (c.document_hash) return `hash:${c.document_hash}`;
   if (c.filename) return `file:${c.filename}`;
   if (c.book_title) return `title:${c.book_title}`;
@@ -357,14 +390,17 @@ function renderEventCard(event) {
       `;
     }
   } else if (event.ev_type === 'kindle-highlight' || event.ev_type === 'tolino-highlight' || event.ev_type === 'pocketbook-highlight') {
-    contentHtml = `
+    const hlBookTitle = c.title || c.book_title || 'Unknown Book';
+    const hlAuthor = getReadingAuthor(c) || 'Unknown';
+    const hlInner = `
       <div class="ev-quote">“${escapeHtml(c.highlight || '')}”</div>
       ${c.annotation ? `<div class="ev-note" style="margin-top: 5px; font-style: italic; color: var(--text-2);">Note: ${escapeHtml(c.annotation)}</div>` : ''}
       <div class="ev-book-meta">
-        — <strong>${escapeHtml(c.book_title || 'Unknown Book')}</strong> by ${escapeHtml(c.author || 'Unknown')}
+        — <strong>${escapeHtml(hlBookTitle)}</strong> by ${escapeHtml(hlAuthor)}
         ${c.location ? `· Location ${c.location}` : ''}
       </div>
     `;
+    contentHtml = renderBookWithCover(getBookUuid(c), hlBookTitle, hlInner);
   } else if (isReadingProgressType(event.ev_type)) {
     if (event.isMergedReadingGroup && event.progressEvents && event.progressEvents.length > 1) {
       let earliest = event.progressEvents[0];
@@ -391,7 +427,8 @@ function renderEventCard(event) {
       }
 
       const title = event.bookTitle || getReadingBookTitle(lc);
-      const author = lc.author || ec.author;
+      const author = getReadingAuthor(lc) || getReadingAuthor(ec);
+      const series = lc.series || ec.series;
       const user = lc.user || ec.user;
       const device = lc.device || ec.device;
       const authorText = author ? `by ${escapeHtml(author)}` : (user ? `user: ${escapeHtml(user)}` : '');
@@ -429,10 +466,11 @@ function renderEventCard(event) {
         `;
       }).join('');
 
-      contentHtml = `
+      const readingInner = `
         <div class="ev-title">${statusText} <strong>${escapeHtml(title)}</strong></div>
         <div class="ev-book-meta">
           ${authorText}
+          ${series ? `· Series: ${escapeHtml(series)}` : ''}
           ${device ? `· Device: ${escapeHtml(device)}` : ''}
           ${progressText}
           ${timeRangeText}
@@ -444,28 +482,33 @@ function renderEventCard(event) {
           </div>
         </details>
       `;
+      contentHtml = renderBookWithCover(event.bookUuid || getBookUuid(lc) || getBookUuid(ec), title, readingInner);
     } else {
       const isFinished = c.read_status === 2 || c.percent_read === 100 || c.percentage === 1.0 || c.percentage === 100;
       const pct = formatReadingPercent(c);
       const progressText = pct ? `· Progress: ${pct}` : '';
       const title = getReadingBookTitle(c);
-      const authorText = c.author ? `by ${escapeHtml(c.author)}` : (c.user ? `user: ${escapeHtml(c.user)}` : '');
+      const author = getReadingAuthor(c);
+      const authorText = author ? `by ${escapeHtml(author)}` : (c.user ? `user: ${escapeHtml(c.user)}` : '');
       const statusText = isFinished ? 'Finished book:' : 'Reading progress on:';
 
-      contentHtml = `
+      const singleInner = `
         <div class="ev-title">${statusText} <strong>${escapeHtml(title)}</strong></div>
         <div class="ev-book-meta">
           ${authorText}
+          ${c.series ? `· Series: ${escapeHtml(c.series)}` : ''}
           ${c.device ? `· Device: ${escapeHtml(c.device)}` : ''}
           ${progressText}
           ${c.progress ? `· Pos: ${escapeHtml(c.progress)}` : ''}
           ${c.last_read ? `· Last read: ${new Date(c.last_read).toLocaleDateString()}` : ''}
         </div>
       `;
+      contentHtml = renderBookWithCover(getBookUuid(c), title, singleInner);
     }
   } else if (event.ev_type === 'calibre-book') {
-    contentHtml = `
-      <div class="ev-title">Added book to Calibre: <strong>${escapeHtml(c.title || 'Unknown Book')}</strong></div>
+    const calibreTitle = c.title || 'Unknown Book';
+    const calibreInner = `
+      <div class="ev-title">Added book to Calibre: <strong>${escapeHtml(calibreTitle)}</strong></div>
       <div class="ev-book-meta">
         by ${escapeHtml(c.authors || 'Unknown')}
         ${c.series ? `· Series: <strong>${escapeHtml(c.series)}</strong>` : ''}
@@ -474,6 +517,7 @@ function renderEventCard(event) {
         ${c.formats ? `· Formats: ${escapeHtml(c.formats)}` : ''}
       </div>
     `;
+    contentHtml = renderBookWithCover(getBookUuid(c), calibreTitle, calibreInner);
   } else if (event.ev_type === 'kodi-movie') {
     const isFinished = c.finished !== false;
     const progressText = c.progress_percent !== undefined && c.progress_percent !== null && c.progress_percent !== 100 ? `· Progress: ${c.progress_percent}%` : '';
@@ -695,10 +739,17 @@ function preprocessEvents(events) {
             id: event.id,
             ev_type: event.ev_type
           });
-          // Prefer a real filename/book_title over a hash fallback if encountered
+          // Prefer canonical title, then filename/book_title, over a hash fallback
           const c = event.content || {};
-          if (!currentReadingGroup.hasNamedTitle && (c.filename || c.book_title)) {
-            currentReadingGroup.bookTitle = c.filename || c.book_title;
+          if (!currentReadingGroup.bookUuid && getBookUuid(c)) {
+            currentReadingGroup.bookUuid = getBookUuid(c);
+          }
+          if (!currentReadingGroup.hasCanonicalTitle && (c.title || c.book_title)) {
+            currentReadingGroup.bookTitle = c.title || c.book_title;
+            currentReadingGroup.hasCanonicalTitle = true;
+            currentReadingGroup.hasNamedTitle = true;
+          } else if (!currentReadingGroup.hasNamedTitle && c.filename) {
+            currentReadingGroup.bookTitle = c.filename;
             currentReadingGroup.hasNamedTitle = true;
           }
           if (event.tags) {
@@ -775,9 +826,11 @@ function startNewReadingGroup(event, bookKey, dayKey) {
       ev_type: event.ev_type
     }],
     bookKey: bookKey,
+    bookUuid: getBookUuid(c),
     dayKey: dayKey,
     bookTitle: getReadingBookTitle(c),
-    hasNamedTitle: Boolean(c.filename || c.book_title),
+    hasCanonicalTitle: Boolean(c.title || c.book_title),
+    hasNamedTitle: Boolean(c.title || c.book_title || c.filename),
     isMergedReadingGroup: true
   };
 }

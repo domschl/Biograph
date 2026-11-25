@@ -356,6 +356,28 @@ svg  { display: block; }
   border-left-color: var(--ev-pocketbook-highlight);
 }
 
+.ev-book-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.ev-book-cover {
+  width: 48px;
+  height: 70px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.ev-book-details {
+  min-width: 0;
+  flex: 1;
+}
+
 .ev-book-meta {
   font-size: 12px;
   color: var(--text-3);

@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -1476,6 +1477,340 @@ def import_cmd(
             
     data = resp.json()
     console.print(f"[green]✓[/green] Successfully imported [bold]{data.get('imported', 0)}[/bold] events.")
+
+
+# ---------------------------------------------------------------------------
+# backfill-books
+# ---------------------------------------------------------------------------
+
+_BOOK_EVENT_TYPES: tuple[str, ...] = (
+    "koreader-progress",
+    "koreader-book",
+    "kosync-progress",
+    "kindle-book",
+    "tolino-book",
+    "pocketbook-book",
+    "kindle-highlight",
+    "tolino-highlight",
+    "pocketbook-highlight",
+    "calibre-book",
+)
+
+
+def _norm_nfc_posix(raw: str) -> str:
+    return unicodedata.normalize("NFC", raw.replace("\\", "/")).strip()
+
+
+def _norm_book_title_key(raw: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", unicodedata.normalize("NFKC", raw).lower()).strip()
+
+
+def _strip_book_ext(raw: str) -> str:
+    name = Path(raw.replace("\\", "/")).name
+    return re.sub(r"\.(epub|pdf|mobi|azw3|fb2|djvu|cbz|txt|html?)$", "", name, flags=re.IGNORECASE).strip()
+
+
+def _build_catalog_indexes(catalog_data: dict[str, Any]) -> dict[str, Any]:
+    books_raw = catalog_data.get("books")
+    if not isinstance(books_raw, dict):
+        raise ValueError("Invalid catalog: missing 'books' mapping")
+
+    by_uuid: dict[str, dict[str, Any]] = {}
+    by_hash: dict[str, dict[str, Any]] = {}
+    by_rel_path: dict[str, dict[str, Any]] = {}
+    by_basename: dict[str, dict[str, Any] | None] = {}
+    by_title: dict[str, dict[str, Any] | None] = {}
+
+    def _add_unique(target: dict[str, dict[str, Any] | None], key: str, book: dict[str, Any]) -> None:
+        if not key:
+            return
+        if key not in target:
+            target[key] = book
+        elif target[key] is not None and target[key]["uuid"] != book["uuid"]:
+            target[key] = None  # ambiguous
+
+    for uuid_key, raw_entry in books_raw.items():
+        if not isinstance(raw_entry, dict):
+            continue
+        book_uuid = str(raw_entry.get("uuid") or uuid_key)
+        authors_raw = raw_entry.get("authors")
+        authors = [str(a) for a in authors_raw] if isinstance(authors_raw, list) else []
+        book = {
+            "uuid": book_uuid,
+            "title": str(raw_entry.get("title") or "").strip(),
+            "authors": authors,
+            "series": str(raw_entry.get("series") or "").strip(),
+            "files": raw_entry.get("files") or [],
+        }
+        by_uuid[book_uuid] = book
+
+        if book["title"]:
+            t_key = _norm_book_title_key(book["title"])
+            _add_unique(by_title, t_key, book)
+            if authors:
+                _add_unique(by_title, _norm_book_title_key(f"{authors[0]} {book['title']}"), book)
+                _add_unique(by_title, _norm_book_title_key(f"{' '.join(authors)} {book['title']}"), book)
+
+        for fentry in book["files"]:
+            if not isinstance(fentry, dict):
+                continue
+            for hkey in ("filename_md5", "koreader_partial_md5"):
+                hval = fentry.get(hkey)
+                if hval:
+                    by_hash[str(hval)] = book
+            rel_raw = fentry.get("rel_path")
+            if rel_raw:
+                norm_rel = _norm_nfc_posix(str(rel_raw))
+                by_rel_path[norm_rel] = book
+                bname = _norm_nfc_posix(Path(norm_rel).name)
+                _add_unique(by_basename, bname, book)
+
+    return {
+        "by_uuid": by_uuid,
+        "by_hash": by_hash,
+        "by_rel_path": by_rel_path,
+        "by_basename": by_basename,
+        "by_title": by_title,
+    }
+
+
+def _match_event_to_book(ev: dict[str, Any], indexes: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
+    content = ev.get("content") or {}
+    if not isinstance(content, dict):
+        return None, ""
+
+    existing_uuid = str(content.get("book_uuid") or content.get("uuid") or "").strip()
+    if existing_uuid and existing_uuid in indexes["by_uuid"]:
+        return indexes["by_uuid"][existing_uuid], "uuid"
+
+    doc_hash = str(content.get("document_hash") or "").strip()
+    if doc_hash and doc_hash in indexes["by_hash"]:
+        return indexes["by_hash"][doc_hash], "hash"
+
+    filename = str(content.get("filename") or "").strip()
+    if filename:
+        norm_rel = _norm_nfc_posix(filename)
+        if norm_rel in indexes["by_rel_path"]:
+            return indexes["by_rel_path"][norm_rel], "path"
+        bname = _norm_nfc_posix(Path(norm_rel).name)
+        matched = indexes["by_basename"].get(bname)
+        if matched is not None:
+            return matched, "path"
+
+    candidates: list[str] = []
+    for key_name in ("title", "book_title"):
+        val = str(content.get(key_name) or "").strip()
+        if val:
+            candidates.append(val)
+    if filename:
+        cleaned = _strip_book_ext(filename)
+        if cleaned:
+            candidates.append(cleaned)
+            if " - " in cleaned:
+                candidates.append(cleaned.split(" - ", 1)[1].strip())
+
+    for cand in candidates:
+        tkey = _norm_book_title_key(cand)
+        matched = indexes["by_title"].get(tkey)
+        if matched is not None:
+            return matched, "title"
+
+    return None, ""
+
+
+def _compute_backfill_record(
+    ev: dict[str, Any],
+    book: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Return an updated event dict for /events/import, or None if already up to date."""
+    ev_type = ev.get("ev_type", "")
+    content = dict(ev.get("content") or {})
+    book_uuid = book["uuid"]
+    expected_uri = f"knrs://book/{book_uuid}"
+
+    new_summary = ev.get("summary")
+    new_uri = ev.get("resource_uri")
+
+    if ev_type == "calibre-book":
+        if not content.get("uuid"):
+            content["uuid"] = book_uuid
+        if new_uri != expected_uri:
+            new_uri = expected_uri
+    else:
+        content["book_uuid"] = book_uuid
+        if book["title"] and not content.get("title"):
+            content["title"] = book["title"]
+        if book["authors"]:
+            if not content.get("authors"):
+                content["authors"] = list(book["authors"])
+            if not content.get("author"):
+                content["author"] = ", ".join(book["authors"])
+        if book["series"] and not content.get("series"):
+            content["series"] = book["series"]
+        new_uri = expected_uri
+
+        if ev_type == "koreader-progress" and book["title"]:
+            pct_raw = content.get("percentage")
+            if pct_raw is not None:
+                try:
+                    pct_val = float(pct_raw)
+                    pct_display = f"{pct_val * 100:.1f}%" if pct_val <= 1.0 else f"{pct_val:.1f}%"
+                    expected_summary = f"Reading progress on '{book['title']}': {pct_display}"
+                    if not new_summary or (
+                        new_summary.startswith("Reading progress on '")
+                        and book["title"] not in new_summary
+                    ):
+                        new_summary = expected_summary
+                except (TypeError, ValueError):
+                    pass
+
+    if (
+        content == (ev.get("content") or {})
+        and new_uri == ev.get("resource_uri")
+        and new_summary == ev.get("summary")
+    ):
+        return None
+
+    return {
+        "id": ev["id"],
+        "timestamp": ev["timestamp"],
+        "received_at": ev["received_at"],
+        "ev_type": ev_type,
+        "source_host": ev.get("source_host"),
+        "source_app": ev.get("source_app"),
+        "content": content,
+        "tags": ev.get("tags") or [],
+        "summary": new_summary,
+        "deleted_at": ev.get("deleted_at"),
+        "remote_id": ev.get("remote_id"),
+        "resource_uri": new_uri,
+    }
+
+
+@app.command(name="backfill-books")
+def backfill_books(
+    catalog_path: Path = typer.Argument(
+        ...,
+        help="Path to .knrs-catalog.json or directory containing it (e.g. ~/MetaLibrary).",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run/--no-dry-run",
+        help="Preview matched updates without modifying the Biograph database.",
+    ),
+    batch_size: int = typer.Option(
+        200,
+        "--batch-size",
+        min=1,
+        max=1000,
+        help="Number of updated events to import per request.",
+    ),
+) -> None:
+    """Backfill book_uuid, metadata, and resource_uri on existing Biograph reading events."""
+    resolved = catalog_path.expanduser()
+    if resolved.is_dir():
+        resolved = resolved / ".knrs-catalog.json"
+
+    if not resolved.is_file():
+        err.print(f"[red]Error:[/red] Catalog file not found: {resolved}")
+        raise typer.Exit(1)
+
+    try:
+        catalog_data = json.loads(resolved.read_text(encoding="utf-8"))
+        indexes = _build_catalog_indexes(catalog_data)
+    except Exception as exc:
+        err.print(f"[red]Error loading catalog {resolved}:[/red] {exc}")
+        raise typer.Exit(1)
+
+    config = _load_config()
+    all_events: list[dict[str, Any]] = []
+    page_size = 500
+    offset = 0
+
+    with _http_client(config) as http:
+        try:
+            while True:
+                params: list[tuple[str, str | int]] = [
+                    ("ev_type", t) for t in _BOOK_EVENT_TYPES
+                ]
+                params.extend([("limit", page_size), ("offset", offset)])
+                resp = http.get("/events/", params=params)
+                resp.raise_for_status()
+                payload = resp.json()
+                items = payload.get("items") or []
+                total = int(payload.get("total") or 0)
+                all_events.extend(items)
+                offset += len(items)
+                if not items or offset >= total:
+                    break
+        except httpx.HTTPStatusError as exc:
+            err.print(f"[red]Server error {exc.response.status_code}:[/red] {exc.response.text}")
+            raise typer.Exit(1)
+        except httpx.RequestError as exc:
+            err.print(f"[red]Connection error:[/red] {exc}")
+            raise typer.Exit(1)
+
+        match_counts = {"uuid": 0, "hash": 0, "path": 0, "title": 0}
+        already_uptodate = 0
+        unmatched = 0
+        updates: list[dict[str, Any]] = []
+
+        for ev in all_events:
+            matched_book, via = _match_event_to_book(ev, indexes)
+            if not matched_book:
+                unmatched += 1
+                continue
+
+            updated_rec = _compute_backfill_record(ev, matched_book)
+            if updated_rec is None:
+                already_uptodate += 1
+                continue
+
+            match_counts[via] += 1
+            updates.append(updated_rec)
+
+        table = Table(title="Biograph Book Backfill Summary")
+        table.add_column("Metric", style="bold cyan")
+        table.add_column("Count", justify="right")
+        table.add_row("Catalog books", str(len(indexes["by_uuid"])))
+        table.add_row("Events scanned", str(len(all_events)))
+        table.add_row("Already up-to-date", str(already_uptodate))
+        table.add_row("Matched (total to update)", str(len(updates)))
+        table.add_row("  via uuid", str(match_counts["uuid"]))
+        table.add_row("  via hash", str(match_counts["hash"]))
+        table.add_row("  via path", str(match_counts["path"]))
+        table.add_row("  via title", str(match_counts["title"]))
+        table.add_row("Unmatched", str(unmatched))
+        console.print(table)
+
+        if not updates:
+            console.print("[green]✓[/green] Nothing to update.")
+            return
+
+        if dry_run:
+            console.print(f"[yellow]Dry run:[/yellow] {len(updates)} event(s) would be updated.")
+            return
+
+        imported_total = 0
+        try:
+            for start in range(0, len(updates), batch_size):
+                chunk = updates[start : start + batch_size]
+                ndjson_body = "\n".join(json.dumps(item, ensure_ascii=False) for item in chunk) + "\n"
+                resp = http.post(
+                    "/events/import",
+                    content=ndjson_body.encode("utf-8"),
+                    headers={"Content-Type": "application/x-ndjson"},
+                )
+                resp.raise_for_status()
+                imported_total += int(resp.json().get("imported", 0))
+        except httpx.HTTPStatusError as exc:
+            err.print(f"[red]Import error {exc.response.status_code}:[/red] {exc.response.text}")
+            raise typer.Exit(1)
+        except httpx.RequestError as exc:
+            err.print(f"[red]Connection error during import:[/red] {exc}")
+            raise typer.Exit(1)
+
+    console.print(f"[green]✓[/green] Backfilled [bold]{imported_total}[/bold] event(s) in Biograph.")
 
 
 @app.command()
